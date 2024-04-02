@@ -2,6 +2,12 @@
 Changelog for package xacro
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.14.18 (2024-04-02)
+--------------------
+* Add more unit tags for yaml files  (`#331 <https://github.com/ros/xacro/issues/331>`_)
+* Mark regexes as raw strings (`#336 <https://github.com/ros/xacro/issues/336>`_)
+* Contributors: Adam Heins, Bruno-Pier
+
 1.14.17 (2024-01-25)
 --------------------
 * Expose python.abs()
