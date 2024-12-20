@@ -2,6 +2,11 @@
 Changelog for package xacro
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+1.14.19 (2024-12-20)
+--------------------
+* Add function python.vars() (`#348 <https://github.com/ros/xacro/issues/348>`_)
+* Contributors: Robert Haschke
+
 1.14.18 (2024-04-02)
 --------------------
 * Add more unit tags for yaml files  (`#331 <https://github.com/ros/xacro/issues/331>`_)
