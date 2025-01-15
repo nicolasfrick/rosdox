@@ -2,28 +2,9 @@ import os
 import re
 import xml.dom.minidom
 import xml.dom.minicompat
+from rospkg import RosPack
+from typing import List
 from .tex_strings import *
-
-class XTree():
-    def __init__(self):
-        pass
-
-    def buildTree(self, link) -> str:
-        tree = ["digraph G {\n"]
-        tree += ["node [shape=box];\n"]
-        self.addChildLinkNames(tree, link)
-
-        # tree += ["node [shape=ellipse, color=blue, fontcolor=blue];\n"]
-        # addChildJointNames(tree, link)
-
-        tree += ["}\n"]
-
-        return "".join(tree)
-    
-    def addChildLinkNames(self, tree: list, link) -> None:
-        tree += [f"\"{link.name}\" [label=\"link.name\"];\n"]
-        for child in link.children:
-            self.addChildLinkNames(child, tree, link)
 
 class XTex():
     def __init__(self,
@@ -156,9 +137,12 @@ class XDox():
                     rm_file_part: str = os.getcwd(),
                     ) -> str:
         
+        self.name = 'xacro_latex_doc'
+
         # set doc directory 
         self.doc_dir = None if outpth is None else os.path.dirname(outpth) if '.' in os.path.basename(outpth) else outpth
-        self.name = 'xacro_latex_doc'
+        if not os.path.exists(self.doc_dir):
+            os.makedirs(self.doc_dir, exist_ok=True)
 
         self.rm_pattern = rm_pattern if rm_pattern is not None else ''
         self.launchfile = self.isLaunchfile(input_filename)
@@ -172,11 +156,63 @@ class XDox():
         self.docs = {self.root_file: {self.LIB: None, self.TEX: XTex(self.root_file, self.doc_dir), self.FILENAME: self.shortPath(input_filename, self.rm_file_part)}}
         self.args_documented = {}
 
+        # tree graph
+        self.tree = "digraph G {\nnode [shape=box];\n"
+        self.edges = "node [shape=ellipse, color=blue, fontcolor=blue];\n"
+
+        self.rospack = RosPack()
+
         print("Creating latex documentation for", "launchfiles" if self.launchfile else "xacro", "in", self.doc_dir if self.doc_dir is not None else 'stdout')
 
         # reset path for xacro output
         return None if outpth is None else None if not '.' in os.path.basename(outpth) else outpth
     
+    def traverseGroups(self, group: xml.dom.minidom.Element, files: dict, level: int) -> None:
+        for child in group.childNodes:
+            if child.nodeName == 'include':
+                if child.hasAttribute("file"):
+                    files.update( {child.getAttribute("file"): {
+                                                                "ns": child.getAttribute("ns") if child.hasAttribute("ns") else None, 
+                                                                "if": child.getAttribute("if") if child.hasAttribute("if") else None, 
+                                                                "unless": child.getAttribute("unless") if child.hasAttribute("unless") else None, 
+                                                                "level": level,
+                                                                }} )
+            elif child.nodeName == 'group':
+                self.traverseGroups(child, files, level +1)
+    
+    def resolvePath(self, filepath: str) -> str:
+        match = re.search(r"\$\(\s*find\s+([^)]+)\s*\)", filepath)
+        if match:
+            pkg = match.group(1)
+            pkg_path = self.rospack.get_path(pkg)
+            subpath = re.sub(r'\$\(find \S+\)', '', filepath)
+            subpath = subpath.strip()
+            return pkg_path + subpath
+        else:
+            print("Cannot resolve", filepath)
+            return ""
+    
+    def addNode(self, node_name: str) -> None:
+        self.tree += f"\"{node_name}\" [label=\"{node_name}\"];\n"
+
+    def addEdge(self, parent: str, child: str, label: str) -> None:
+        self.edges += f"\"{parent}\" -> \"{child}\" [label=\"{label}\"];\n"
+
+    def getTree(self) -> str:
+        self.tree += self.edges + "}\n"
+        return self.tree
+    
+    def writeTree(self) -> str:
+        tree = self.getTree()
+        if self.doc_dir is None:
+            return tree + "\n\n"
+        
+        gv_path = os.path.join(self.doc_dir, "grapviz_tree.gv")
+        with open(gv_path, "w") as fw:
+            fw.write(tree)
+
+        return "Tree saved to " + gv_path + "\n"
+
     def shortPath(self, filepath: str, rm: str) -> str:
         return filepath.replace(rm, "")
     
@@ -191,7 +227,8 @@ class XDox():
             name = self.getFilename(filepath)
 
             if name in self.docs.keys():
-                print(f"Adding documentation for {self.doc_type} root file: ", name)
+                infix = " root" if self.root_file in filepath else ""
+                print(f"Replacing documentation for {self.doc_type}{infix} file: ", name)
                 self.docs[name][self.LIB] = lib
             else:
                 print(f"Adding documentation for {self.doc_type} included file: ", name)
@@ -243,6 +280,31 @@ class XDox():
 
             exit(0)
 
+			# # remap launchfile member
+			# if node.nodeName == 'group':
+			# 	if node.hasAttribute("name"):
+			# 		name = node.getAttribute("name")
+			# 	if node.hasAttribute("ns"):
+			# 		ns = node.getAttribute("ns")
+			# 	if node.hasAttribute("if"):
+			# 		if_cond = node.getAttribute("if")
+			# 	if node.hasAttribute("unless"):
+			# 		unless_cond = node.getAttribute("unless")
+
+			# elif node.nodeName == 'include':
+			# 	if node.hasAttribute("name"):
+			# 		name = node.getAttribute("name")
+			# 	if node.hasAttribute("file"):
+			# 		file = node.getAttribute("file")
+			# 		file = xdx.resolvePath(file)
+			# 		process_file(file)
+			# 	if node.hasAttribute("ns"):
+			# 		ns = node.getAttribute("ns")
+			# 	if node.hasAttribute("if"):
+			# 		if_cond = node.getAttribute("if")
+			# 	if node.hasAttribute("unless"):
+			# 		unless_cond = node.getAttribute("unless")
+                         
     def _procGroups(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
         group_list = ""
         groups = lib.getElementsByTagName("group")
@@ -311,6 +373,7 @@ class XDox():
 
     def writeDoc(self) -> str:
         res_str = self.title_tex.save()
+        res_str += self.writeTree()
         for dct in self.docs.values():
             res_str += dct[self.TEX].save()
         return  res_str

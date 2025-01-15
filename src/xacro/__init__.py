@@ -929,10 +929,10 @@ def eval_all(node, macros, symbols):
 	except xml.dom.NotFoundErr:
 		pass
 	
-	# file's root node
+	# current file's root node
 	if node.hasAttribute("filename"):
-		filename = node.getAttribute("filename")
-		xdx.addDoc(filename, node)
+		root_filename = node.getAttribute("filename")
+		xdx.addDoc(root_filename, node) # replace duplicates
 
 	node = node.firstChild
 	eval_comments = False
@@ -941,10 +941,52 @@ def eval_all(node, macros, symbols):
 		if node.nodeType == xml.dom.Node.ELEMENT_NODE:
 			node: xml.dom.minidom.Element = node # assign the type
 
-			# launchfile member
-			# if node.nodeName == 'group':
-			# 	print(node)
-			
+			# doc included files
+			if node.nodeName == 'group':
+				files = {}
+				# find file in groups
+				xdx.traverseGroups(node, files, 0)
+				for fl, item in files.items():
+					# grow tree
+					ns = item["ns"]
+					if_cond = item["if"]
+					unless_cond = item["unless"]
+					level = item["level"]
+					label =  "x" # f"{"ns " + ns  +"\n" if ns is not None else ""} \
+					# 				  {"if " + if_cond  +"\n" if if_cond is not None else ""} \
+					# 				  {"unless " + unless_cond  +"\n" if unless_cond is not None else ""}"
+					if level > 0:
+						# add lower levels
+						for other_item in files.values():
+							other_level = other_item["level"]
+							if other_level < level:
+								ns = other_item["ns"]
+								if_cond = other_item["if"]
+								unless_cond = other_item["unless"]
+								other_label = "y" # f"{"ns " + ns  +"\n" if ns is not None else ""} \
+												   	 		#    {"if " + if_cond  +"\n" if if_cond is not None else ""} \
+												    		#    {"unless " + unless_cond  +"\n" if unless_cond is not None else ""}" + label
+								label = other_label
+
+					fn = xdx.getFilename(fl)
+					xdx.addNode(fn)
+					xdx.addEdge(xdx.getFilename(root_filename), fn, label)
+					# enter recursion
+					process_file(xdx.resolvePath(fl))
+
+			elif node.nodeName == 'include':
+				if node.hasAttribute("file"):
+					file = node.getAttribute("file")
+					# grow tree
+					label = "z" # f"{"ns " + node.getAttribute("ns") + "\n" if node.hasAttribute("ns") else ""} \
+									#   {"if " + node.getAttribute("if") + "\n" if node.hasAttribute("if") else ""} \
+									#   {"unless " + node.getAttribute("unless") if node.hasAttribute("unless") else ""}"					
+					fn = xdx.getFilename(file)
+					xdx.addNode(fn)
+					xdx.addEdge(xdx.getFilename(root_filename), fn, label)
+					# enter recursion
+					process_file(xdx.resolvePath(file))
+					
 			# process xacro
 			eval_comments = False  # any tag automatically disables comment evaluation
 			if node.tagName == 'xacro:insert_block':
