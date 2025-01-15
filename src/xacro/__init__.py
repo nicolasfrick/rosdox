@@ -929,8 +929,10 @@ def eval_all(node, macros, symbols):
 	except xml.dom.NotFoundErr:
 		pass
 	
-	# present if its the root node
-	root_filepath = node.getAttribute("filename")
+	# file's root node
+	if node.hasAttribute("filename"):
+		filename = node.getAttribute("filename")
+		xdx.addDoc(filename, node)
 
 	node = node.firstChild
 	eval_comments = False
@@ -939,12 +941,9 @@ def eval_all(node, macros, symbols):
 		if node.nodeType == xml.dom.Node.ELEMENT_NODE:
 			node: xml.dom.minidom.Element = node # assign the type
 
-			# doc
-			if root_filepath:
-				xdx.addDoc(root_filepath, node)
-				root_filepath = None
-				node = next
-				continue
+			# launchfile member
+			# if node.nodeName == 'group':
+			# 	print(node)
 			
 			# process xacro
 			eval_comments = False  # any tag automatically disables comment evaluation

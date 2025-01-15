@@ -104,7 +104,7 @@ class XTex():
     def section(self, name: str, label: str) -> None:
         self.tex += DOXY_SEC.format(self.escapeAll(name), label)
 
-    def subsection(self, name: str, label: str, text: str) -> None:
+    def subsection(self, name: str, label: str, text: str="") -> None:
         self.tex += DOXY_SUBSEC.format(self.escapeAll(name), label, self.escapeAll(text))
 
     def subsubsection(self, name: str, label: str, text: str) -> None:
@@ -189,18 +189,19 @@ class XDox():
     def addDoc(self, filepath: str, lib: xml.dom.minidom.Element) -> None:
         if self.rm_pattern not in filepath: # ignore
             name = self.getFilename(filepath)
-            print(f"Adding documentation for {self.doc_type} file: ", name)
 
             if name in self.docs.keys():
+                print(f"Adding documentation for {self.doc_type} root file: ", name)
                 self.docs[name][self.LIB] = lib
             else:
+                print(f"Adding documentation for {self.doc_type} included file: ", name)
                 self.docs.update( {name: {self.LIB: lib, self.TEX: XTex(name, self.doc_dir), self.FILENAME: self.shortPath(filepath, self.rm_file_part)}} )
 
     def genDoc(self) -> None:
         # gen file list
+        self.title_tex.subsection("Launchfiles Documentation", SEC_LABEL.format(self.doc_type))
         self.fileList( self.title_tex, {name: dct[self.FILENAME] for name, dct in self.docs.items()} )
         self.title_tex.newpage()
-        self.title_tex.section("Launchfiles Documentation", SEC_LABEL.format(self.doc_type))
 
         # gen content per file
         for name, dct in self.docs.items():
@@ -210,17 +211,15 @@ class XDox():
 
     def fileList(self, tex: XTex, files: dict) -> None:
         tex.newpage()
-        tex.subsection("File List", SUBSEC_LABEL.format(self.doc_type, "filelist"), "Here is a list of all files:")
+        tex.subsubsection("File List", SUBSEC_LABEL.format(self.doc_type, "filelist"), "Here is a list of all files:")
         lststr = "".join( [tex.clistHyperEntry(FILE_LABEL.format(self.doc_type, name), tex.removePath(f, self.rm_file_part)) for name, f in files.items()] )
         tex.clist(lststr)
 
     def _procDoc(self, name: str, lib: xml.dom.minidom.Element, tex: XTex) -> None:        
-        tex.subsection(name, FILE_LABEL.format(self.doc_type, name), "Content Documentation")
+        tex.subsubsection(name, FILE_LABEL.format(self.doc_type, name), "Content Documentation")
 
-        # print(lib.toprettyxml())
-
-        # self._procArgs(lib, tex)
-        # tex.newpage()
+        self._procArgs(lib, tex)
+        tex.newpage()
         # self._procParams(lib, tex)
         # tex.newpage()
         # self._procGroups(lib, tex)
