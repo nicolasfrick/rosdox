@@ -49,7 +49,7 @@ from .xmlutils import opt_attrs, reqd_attrs, first_child_element, \
 
 # documenter
 from .xdox import XDox
-xdox = XDox()
+xdx = XDox()
 
 try:  # python 2
 	_basestr = basestring
@@ -726,7 +726,7 @@ def eval_text(text, symbols):
 		if id == lex.EXPR:
 			results.append(handle_expr(lex.next()[1][2:-1]))  # rm $()
 		elif id == lex.EXTENSION:
-			if xdox.launchfile:
+			if xdx.launchfile:
 				# handle $(arg value) expression in launchfile
 				# ->  just append the expression
 				results.append(lex.next()[1]) 
@@ -928,12 +928,25 @@ def eval_all(node, macros, symbols):
 		node.removeAttribute('xmlns:xacro')
 	except xml.dom.NotFoundErr:
 		pass
+	
+	# present if its the root node
+	root_filepath = node.getAttribute("filename")
 
 	node = node.firstChild
 	eval_comments = False
 	while node:
 		next = node.nextSibling
 		if node.nodeType == xml.dom.Node.ELEMENT_NODE:
+			node: xml.dom.minidom.Element = node # assign the type
+
+			# doc
+			if root_filepath:
+				xdx.addDoc(root_filepath, node)
+				root_filepath = None
+				node = next
+				continue
+			
+			# process xacro
 			eval_comments = False  # any tag automatically disables comment evaluation
 			if node.tagName == 'xacro:insert_block':
 				name, = check_attrs(node, ['name'], [])
@@ -957,9 +970,6 @@ def eval_all(node, macros, symbols):
 
 			elif node.tagName == 'xacro:include':
 				process_include(node, macros, symbols, eval_all)
-				
-			elif node.tagName == "include":
-				print("INCLUDE")
 
 			elif node.tagName == 'xacro:property':
 				grab_property(node, symbols)
@@ -1125,6 +1135,8 @@ def process_file(input_file_name, **kwargs):
 	init_stacks(input_file_name)
 	# parse the document into a xml.dom tree
 	doc = parse(None, input_file_name)
+	# add filepath for docs
+	doc.documentElement.setAttribute("filename", input_file_name)
 	# perform macro replacement
 	process_doc(doc, **kwargs)
 
@@ -1149,8 +1161,8 @@ def main():
 	opts, input_file_name = process_args(sys.argv[1:])
 
 	#########################
-	# documentation
-	opts.output = xdox.init(opts.output, opts.mappings.get("rm_pattern"), input_file_name, )
+	# init documentation
+	opts.output = xdx.init(opts.output, opts.mappings.get("rm_pattern"), input_file_name, )
 	#########################
 
 	try:
@@ -1198,7 +1210,8 @@ def main():
 		out.close()
 
 	#######################
-	# create doc
+	# create documentation
 	print("\nLatex documentation:")
-	xdox.genDoc()
-	print(xdox.writeDoc())
+	xdx.genDoc()
+	print(xdx.writeDoc())
+	#########################

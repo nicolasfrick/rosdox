@@ -1,53 +1,12 @@
 import os
 import re
-import xml.dom.minicompat
 import xml.dom.minidom
-from typing import Any
+import xml.dom.minicompat
 from .tex_strings import *
 
 class XTree():
-    def __init__(self) -> None:
-        self.nodes = {}
-
-    def appendNode(self, name: str, children: list) -> None:
-        self.nodes.update( {name: children} )
-
-class XTex():
-    def __init__(self,
-                            name: str,
-                            filepath: str,
-                            escape_seq: str="\_",
-                            test_fmt: bool=False,
-                            ) -> None:
-        
-        self.name = name
-        self.filepath = None if filepath is None else os.path.join(filepath, name)
-        self.tex = f"% Latex Documentation for {name}\n\n"
-        self.escape_seq = escape_seq
-        # self.cwd = os.getcwd()
-
-        if test_fmt:
-            self.testFmt()
-            exit(0)
-
-        # print(self.buildTree(None))
-
-    def testFmt(self) -> None:
-        print("PAGEREF", PAGEREF.format("testref"), "\n")
-        print("HYPERTARGET", HYPERTARGET.format("testref", "teststr"), "\n")
-        print("HYPERLINK", HYPERLINK.format("testref", "teststr"), "\n")
-        print("MBOX_HYPERLINK", MBOX_HYPERLINK.format("testref", "teststr"), "\n")
-        print("DOXY_SEC", DOXY_SEC.format("teststr", "testref"), "\n")
-        print("DOXY_SUBSEC", DOXY_SUBSEC.format("teststr", "testref", "testtext"), "\n")
-        print("DOXY_SUBSUBSEC", DOXY_SUBSUBSEC.format("teststr", "testref", "testtext"), "\n")
-        print("DOXY_CLIST", DOXY_CLIST.format(DOXY_CLIST_ENTRY.format("teststr", "testref", "testtext")), "\n")
-        print("DOXY_CLIST_HYPER_ENTRY", DOXY_CLIST_HYPER_ENTRY.format("hyperlink", "hypertext", "page", "testext"), "\n")
-        print("DOXY_CITEMIZE", DOXY_CITEMIZE.format("testitem"), "\n")
-        print("DOXY_CITEMIZE_CLIST", DOXY_CITEMIZE_CLIST.format("testitem", "testentry"), "\n")
-        citemize_clists_str = ""
-        for i in range(3):
-            citemize_clists_str += DOXY_CITEMIZE_CLIST.format(f"testitem_{i}", f"testentry_{i}")
-        print("DOXY_CITEMIZE_MULTI\n", DOXY_CITEMIZE.format(citemize_clists_str), "\n")
+    def __init__(self):
+        pass
 
     def buildTree(self, link) -> str:
         tree = ["digraph G {\n"]
@@ -65,6 +24,40 @@ class XTex():
         tree += [f"\"{link.name}\" [label=\"link.name\"];\n"]
         for child in link.children:
             self.addChildLinkNames(child, tree, link)
+
+class XTex():
+    def __init__(self,
+                            name: str,
+                            filepath: str,
+                            escape_seq: str="\_",
+                            test_fmt: bool=False,
+                            ) -> None:
+        
+        self.name = name
+        self.filepath = None if filepath is None else os.path.join(filepath, name)
+        self.tex = f"% Latex Documentation for {name}\n\n"
+        self.escape_seq = escape_seq
+
+        if test_fmt:
+            self.testFmt()
+            exit(0)
+
+    def testFmt(self) -> None:
+        print("PAGEREF", PAGEREF.format("testref"), "\n")
+        print("HYPERTARGET", HYPERTARGET.format("testref", "teststr"), "\n")
+        print("HYPERLINK", HYPERLINK.format("testref", "teststr"), "\n")
+        print("MBOX_HYPERLINK", MBOX_HYPERLINK.format("testref", "teststr"), "\n")
+        print("DOXY_SEC", DOXY_SEC.format("teststr", "testref"), "\n")
+        print("DOXY_SUBSEC", DOXY_SUBSEC.format("teststr", "testref", "testtext"), "\n")
+        print("DOXY_SUBSUBSEC", DOXY_SUBSUBSEC.format("teststr", "testref", "testtext"), "\n")
+        print("DOXY_CLIST", DOXY_CLIST.format(DOXY_CLIST_ENTRY.format("teststr", "testref", "testtext")), "\n")
+        print("DOXY_CLIST_HYPER_ENTRY", DOXY_CLIST_HYPER_ENTRY.format("hyperlink", "hypertext", "page", "testext"), "\n")
+        print("DOXY_CITEMIZE", DOXY_CITEMIZE.format("testitem"), "\n")
+        print("DOXY_CITEMIZE_CLIST", DOXY_CITEMIZE_CLIST.format("testitem", "testentry"), "\n")
+        citemize_clists_str = ""
+        for i in range(3):
+            citemize_clists_str += DOXY_CITEMIZE_CLIST.format(f"testitem_{i}", f"testentry_{i}")
+        print("DOXY_CITEMIZE_MULTI\n", DOXY_CITEMIZE.format(citemize_clists_str), "\n")
 
     def name2Ref(self, name: str) -> str:
         return self.name + "__" + name
@@ -134,17 +127,22 @@ class XTex():
     
     def citemParEntry(self, name: str, value: str) -> str:
         return DOXY_CITEMIZE_CLIST.format(f"\\textbf{{{self.escapeAll(name)}}}" , "", self.escapeAll(value))
+    
+    def input(self, filepath: str) -> None:
+        self.tex += INPUT.format(filepath)
 
     def save(self) -> str:
         if self.filepath is None:
-            return self.tex  # to string
+            return self.tex  + "\n\n" # to string
         
         with open(self.filepath + '.tex', 'w') as fw:
             fw.write(self.tex) # to file
-        return f'Tex saved to {self.filepath}.tex'
+        return f'Tex saved to {self.filepath}.tex\n'
 
 class XDox():
     DOC = 'doc'
+    LIB = 'lib'
+    TEX = 'tex'
     FILENAME = 'fn'
     PKGNAME = 'pkg'
 
@@ -156,87 +154,85 @@ class XDox():
                     rm_pattern: str,
                     input_filename: str,
                     rm_file_part: str = os.getcwd(),
-                    ) -> None:
+                    ) -> str:
         
-        self.name = 'xacro_latex_doc'
         # set doc directory 
         self.doc_dir = None if outpth is None else os.path.dirname(outpth) if '.' in os.path.basename(outpth) else outpth
+        self.name = 'xacro_latex_doc'
 
-        self.docs = {}
-        self.args_documented = {}
         self.rm_pattern = rm_pattern if rm_pattern is not None else ''
-        self.tex = XTex(self.name, self.doc_dir)
-        self.tree = XTree()
         self.launchfile = self.isLaunchfile(input_filename)
-        self.doc_type = 'launch' if self.launchfile else 'urdf'
+        self.doc_type = 'launch' if self.launchfile else 'xacro'
+        self.extension = "." + self.doc_type
         self.rm_file_part = rm_file_part
+        
+        self.title_tex = XTex("Titlepage", self.doc_dir)
+        self.root_file = self.getFilename(input_filename)
+        self.current_file = self.root_file
+        self.docs = {self.root_file: {self.LIB: None, self.TEX: XTex(self.root_file, self.doc_dir), self.FILENAME: self.shortPath(input_filename, self.rm_file_part)}}
+        self.args_documented = {}
 
         print("Creating latex documentation for", "launchfiles" if self.launchfile else "xacro", "in", self.doc_dir if self.doc_dir is not None else 'stdout')
 
         # reset path for xacro output
         return None if outpth is None else None if not '.' in os.path.basename(outpth) else outpth
+    
+    def shortPath(self, filepath: str, rm: str) -> str:
+        return filepath.replace(rm, "")
+    
+    def getFilename(self, filepath: str) -> str:
+        return os.path.basename(filepath).replace(self.extension, "")
 
     def isLaunchfile(self, filename: str) -> bool:
         return '.launch' in filename
 
-    def addDoc(self, name: str, filename: str, doc: xml.dom.minidom.Document) -> None:
-        if self.rm_pattern not in filename: # ignore
+    def addDoc(self, filepath: str, lib: xml.dom.minidom.Element) -> None:
+        if self.rm_pattern not in filepath: # ignore
+            name = self.getFilename(filepath)
             print(f"Adding documentation for {self.doc_type} file: ", name)
-            pkg_name = filename.replace('/launch', '')
-            pkg_name = pkg_name.split("/")[-1]
-            self.docs.update( {name: {self.DOC: doc, self.FILENAME: filename, self.PKGNAME: pkg_name}} )
 
-    def fileList(self, files: dict) -> None:
-        self.tex.newpage()
-        self.tex.section("File Index", f"sw:{self.name}_file_index")
-        self.tex.subsection("File List", f"sw::{self.name}_file_list", "Here is a list of all files:")
-        lststr = "".join( [self.tex.clistHyperEntry(f"sw:{self.name}__{name}_file_{self.doc_type}_doc", self.tex.removePath(f, self.rm_file_part)) for name, f in files.items()] )
-        self.tex.clist(lststr)
+            if name in self.docs.keys():
+                self.docs[name][self.LIB] = lib
+            else:
+                self.docs.update( {name: {self.LIB: lib, self.TEX: XTex(name, self.doc_dir), self.FILENAME: self.shortPath(filepath, self.rm_file_part)}} )
 
     def genDoc(self) -> None:
         # gen file list
-        self.fileList( {name: dct[self.FILENAME] for name, dct in self.docs.items()} )
-        self.tex.newpage()
-        self.tex.section("Launchfiles Documentation", f"sw:{self.name}__file_doc")
+        self.fileList( self.title_tex, {name: dct[self.FILENAME] for name, dct in self.docs.items()} )
+        self.title_tex.newpage()
+        self.title_tex.section("Launchfiles Documentation", SEC_LABEL.format(self.doc_type))
 
-        # gen content per directory
-        last_dir = ''
+        # gen content per file
         for name, dct in self.docs.items():
             print("Generating latex documentation for", name)
+            self._procDoc(name, dct[self.LIB], dct[self.TEX])
+            self.title_tex.input(os.path.join(self.doc_dir, name))
 
-            file_dir = os.path.dirname(dct[self.FILENAME])
-            if file_dir != last_dir:
-                # new directory
-                if last_dir != '':
-                    self.tex.newpage()
-                self.tex.hypertarget(dct[self.PKGNAME])
-                self.tex.subsection(name + " Package", f"sw:{self.name}__{dct[self.PKGNAME]}_pkg_{self.doc_type}_doc", "")
-                last_dir = file_dir 
-            
-            # extract content
-            self._procDoc(name, dct)
+    def fileList(self, tex: XTex, files: dict) -> None:
+        tex.newpage()
+        tex.subsection("File List", SUBSEC_LABEL.format(self.doc_type, "filelist"), "Here is a list of all files:")
+        lststr = "".join( [tex.clistHyperEntry(FILE_LABEL.format(self.doc_type, name), tex.removePath(f, self.rm_file_part)) for name, f in files.items()] )
+        tex.clist(lststr)
 
-    def _procDoc(self, name: str, dct: dict) -> None:        
-        doc = dct[self.DOC]
-        lib: xml.dom.minidom.Element = doc.documentElement
-        self.tex.subsubsection("File " + name, f"sw:{self.name}__{name}_file_{self.doc_type}_doc", "")
+    def _procDoc(self, name: str, lib: xml.dom.minidom.Element, tex: XTex) -> None:        
+        tex.subsection(name, FILE_LABEL.format(self.doc_type, name), "Content Documentation")
 
         # print(lib.toprettyxml())
 
-        # self._procArgs(lib)
-        # self.tex.newpage()
-        # self._procParams(lib)
-        # self.tex.newpage()
-        # self._procGroups(lib)
-        # self.tex.newpage()
-        # self._procText(lib)
-        # self.tex.newpage()
-        # self._procComment(lib)
-        # self.tex.newpage()
-        # self._procIncludes(lib)
-        # self.tex.newpage()
+        # self._procArgs(lib, tex)
+        # tex.newpage()
+        # self._procParams(lib, tex)
+        # tex.newpage()
+        # self._procGroups(lib, tex)
+        # tex.newpage()
+        # self._procText(lib, tex)
+        # tex.newpage()
+        # self._procComment(lib, tex)
+        # tex.newpage()
+        # self._procIncludes(lib, tex)
+        # tex.newpage()
 
-    def _procIncludes(self, lib: xml.dom.minidom.Element) -> None:
+    def _procIncludes(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
         include_list = ""
         includes = lib.getElementsByTagName("include")
         if len(includes) == 0:
@@ -248,7 +244,7 @@ class XDox():
 
             exit(0)
 
-    def _procGroups(self, lib: xml.dom.minidom.Element) -> None:
+    def _procGroups(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
         group_list = ""
         groups = lib.getElementsByTagName("group")
         if len(groups) == 0:
@@ -257,7 +253,7 @@ class XDox():
         for g in groups:
             print(g.toprettyxml())
 
-    def _procText(self, lib: xml.dom.minidom.Element) -> None:
+    def _procText(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
         text_list = ""
         texts = lib.getElementsByTagName("#text")
         if len(texts) == 0:
@@ -266,7 +262,7 @@ class XDox():
         for t in texts:
             print(t.toprettyxml())
 
-    def _procComment(self, lib: xml.dom.minidom.Element) -> None:
+    def _procComment(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
         com_list = ""
         comments = lib.getElementsByTagName("#comment")
         if len(comments) == 0:
@@ -275,7 +271,7 @@ class XDox():
         for c in comments:
             print(c.toprettyxml())
 
-    def _procArgs(self, lib: xml.dom.minidom.Element) -> None:
+    def _procArgs(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
         args_list = ""
         args = lib.getElementsByTagName("arg")
         if len(args) == 0:
@@ -285,12 +281,12 @@ class XDox():
             n = a.getAttribute("name") if a.hasAttribute("name") else "?"
             v = a.getAttribute("value") if a.hasAttribute("value") else a.getAttribute("default") if a.hasAttribute("default") else "n/a"
             d = a.getAttribute("doc") if a.hasAttribute("doc") else "n/a"
-            args_list += self.tex.citemVarEntry(n, v ,d)
+            args_list += tex.citemVarEntry(n, v ,d)
 
         if "\item" in args_list:
-            self.tex.citem("Args:~~~~~~\small{name}~~~~~~~~~~\small{default}", args_list)
+            tex.citem("Args:~~~~~~\small{name}~~~~~~~~~~\small{default}", args_list)
 
-    def _procParams(self, lib: xml.dom.minidom.Element) -> None:
+    def _procParams(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
         params_list = ""
         params = lib.getElementsByTagName("param")
         val = 'command'
@@ -306,13 +302,16 @@ class XDox():
                 c = p.getAttribute("value")
                 val = 'value'
 
-            params_list += self.tex.citemParEntry(n, c)
+            params_list += tex.citemParEntry(n, c)
             # add line breaks
-            self.tex.newline()
+            tex.newline()
 
         if "\item" in params_list:
-            self.tex.citem(f"Params:\\hspace{{2cm}}\small{{name}}\\hspace{{2cm}}\\small{{{val}}}" + ("\\hspace{{2cm}}\\small{{args}}" if val == 'command' else ""), params_list)
-            self.tex.newpage()
+            tex.citem(f"Params:\\hspace{{2cm}}\small{{name}}\\hspace{{2cm}}\\small{{{val}}}" + ("\\hspace{{2cm}}\\small{{args}}" if val == 'command' else ""), params_list)
+            tex.newpage()
 
     def writeDoc(self) -> str:
-        return self.tex.save()
+        res_str = self.title_tex.save()
+        for dct in self.docs.values():
+            res_str += dct[self.TEX].save()
+        return  res_str

@@ -29,3 +29,10 @@ DOXY_CLIST_HYPER_ENTRY = "\item\contentsline{{section}}{{\mbox{{\color{{blue}}\h
 DOXY_CITEMIZE_STR = "{{DoxyCompactItemize}}"
 DOXY_CITEMIZE = f"\doxysubsubsection*{EMBRACED_ARG}\n\\begin{DOXY_CITEMIZE_STR}\n{BRACES}\end{DOXY_CITEMIZE_STR}{NEWLINE_FMT}" # 1 arg
 DOXY_CITEMIZE_CLIST = "    \item {} {}\n    \\begin{{DoxyCompactList}}\n      \small\item\em {}\n    \end{{DoxyCompactList}}\n" # 3 args name value \n doc
+
+SEC_LABEL = "sw:{}_doc__sec" #  1 arg: doc_type
+SUBSEC_LABEL = "sw:{}_doc__{}_subsec" #  2 arg: doc_type, filename
+FILE_LABEL = "sw:{}_doc__{}_file" # 2 args: doc_type, filename
+ARG_LABEL = "sw:{}_doc__{}_arg" # 2 args: doc_type, argname
+
+INPUT = "\input{{{}}}\n"
