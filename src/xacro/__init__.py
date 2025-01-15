@@ -49,8 +49,9 @@ from .color import error, message, warning
 from .xmlutils import opt_attrs, reqd_attrs, first_child_element, \
     next_sibling_element, replace_node
 
-# flag indicating input is a ros launchfile
-launchfile = False
+# documenter
+from xdox import XDox
+xdox = XDox()
 
 try:  # python 2
     _basestr = basestring
@@ -513,7 +514,7 @@ def import_xml_namespaces(parent, attributes):
             else:
                 parent.setAttribute(name, value)
 
-
+# i 1
 def process_include(elt, macros, symbols, func):
     included = []
     filename_spec, namespace_spec, optional = check_attrs(elt, ['filename'], ['ns', 'optional'])
@@ -727,7 +728,7 @@ def eval_text(text, symbols):
         if id == lex.EXPR:
             results.append(handle_expr(lex.next()[1][2:-1]))  # rm $()
         elif id == lex.EXTENSION:
-            if launchfile:
+            if xdox.launchfile:
                 # handle $(arg value) expression in launchfile
                 # ->  just append the expression
                 results.append(lex.next()[1]) 
@@ -958,6 +959,9 @@ def eval_all(node, macros, symbols):
 
             elif node.tagName == 'xacro:include':
                 process_include(node, macros, symbols, eval_all)
+                
+			elif node.tagName == "include":
+                pass
 
             elif node.tagName == 'xacro:property':
                 grab_property(node, symbols)
@@ -1141,379 +1145,19 @@ def process_file(input_file_name, **kwargs):
 
 _global_symbols = create_global_symbols()
 
-BRACES = "{}"
-EMBRACED_ARG = "{{{}}}"
-EMBRACING_STR_OPEN = "{{"
-EMBRACING_STR_CLOSE = "}}"
-
-NEWPAGE = "\n\\newpage\n\n"
-NEWLINE = "\n\\vspace{2\\baselineskip}"
-NEWLINE_FMT = "\n\\vspace{{2\\baselineskip}}"
-
-PAGEREF = f"\pageref{EMBRACED_ARG}" # 1 arg
-MBOX_FMT = f"\mbox{EMBRACING_STR_OPEN}{EMBRACED_ARG}{EMBRACING_STR_CLOSE}" # 1 arg
-HYPERTARGET = f"\hypertarget{EMBRACED_ARG}{EMBRACED_ARG}" # 2 args
-HYPERLINK = f"\hyperlink{EMBRACED_ARG}{EMBRACED_ARG}" # 2 args
-MBOX_HYPERLINK = MBOX_FMT.format(HYPERLINK) # 2 args
-
-# DOXY_SEC = f"\doxysection{EMBRACED_ARG} \label{EMBRACED_ARG}\n" # 2 args
-# DOXY_SUBSEC = f"\doxysubsection{EMBRACED_ARG} \label{EMBRACED_ARG}\n{BRACES}\n" # 3 args
-# DOXY_SUBSUBSEC = f"\doxysubsubsection{EMBRACED_ARG} \label{EMBRACED_ARG}\n{BRACES}\n" # 3 args
-DOXY_SEC = f"\section{EMBRACED_ARG} \label{EMBRACED_ARG}\n" # 2 args
-DOXY_SUBSEC = f"\subsection{EMBRACED_ARG} \label{EMBRACED_ARG}\n{BRACES}\n" # 3 args
-DOXY_SUBSUBSEC = f"\subsubsection{EMBRACED_ARG} \label{EMBRACED_ARG}\n{BRACES}\n" # 3 args
-
-DOXY_SEC_STR = "{{section}}"
-DOXY_CLIST_STR = "{{DoxyCompactList}}"
-DOXY_CLIST = f"\\begin{DOXY_CLIST_STR}\n{BRACES}\n\end{DOXY_CLIST_STR}\n" # 1arg
-DOXY_CLIST_ENTRY = f"\item\contentsline{DOXY_SEC_STR}{EMBRACED_ARG}{EMBRACED_ARG}{EMBRACED_ARG}\n" # 3 args
-DOXY_CLIST_HYPER_ENTRY = "\item\contentsline{{section}}{{\mbox{{\color{{blue}}\hypertarget{{{}}}{{{}}}}}}}{{\color{{blue}}\pageref{{{}}}}}{{{}}}" # 4 args
-
-DOXY_CITEMIZE_STR = "{{DoxyCompactItemize}}"
-DOXY_CITEMIZE = f"\doxysubsubsection*{EMBRACED_ARG}\n\\begin{DOXY_CITEMIZE_STR}\n{BRACES}\end{DOXY_CITEMIZE_STR}{NEWLINE_FMT}" # 1 arg
-DOXY_CITEMIZE_CLIST = "    \item {} {}\n    \\begin{{DoxyCompactList}}\n      \small\item\em {}\n    \end{{DoxyCompactList}}\n" # 3 args name value \n doc
-
-class XTree():
-    def __init__(self) -> None:
-        self.nodes = {}
-
-    def appendNode(self, name: str, children: list) -> None:
-        self.nodes.update( {name: children} )
-
-class XTex():
-    def __init__(self,
-                            name: str,
-                            filepath: str,
-                            escape_seq: str="\_",
-                            test_fmt: bool=False,
-                            ) -> None:
-        
-        self.name = name
-        self.filepath = None if filepath is None else os.path.join(filepath, name)
-        self.tex = f"% Latex Documentation for {name}\n\n"
-        self.escape_seq = escape_seq
-        # self.cwd = os.getcwd()
-
-        if test_fmt:
-            self.testFmt()
-            exit(0)
-
-        # print(self.buildTree(None))
-
-    def testFmt(self) -> None:
-        print("PAGEREF", PAGEREF.format("testref"), "\n")
-        print("HYPERTARGET", HYPERTARGET.format("testref", "teststr"), "\n")
-        print("HYPERLINK", HYPERLINK.format("testref", "teststr"), "\n")
-        print("MBOX_HYPERLINK", MBOX_HYPERLINK.format("testref", "teststr"), "\n")
-        print("DOXY_SEC", DOXY_SEC.format("teststr", "testref"), "\n")
-        print("DOXY_SUBSEC", DOXY_SUBSEC.format("teststr", "testref", "testtext"), "\n")
-        print("DOXY_SUBSUBSEC", DOXY_SUBSUBSEC.format("teststr", "testref", "testtext"), "\n")
-        print("DOXY_CLIST", DOXY_CLIST.format(DOXY_CLIST_ENTRY.format("teststr", "testref", "testtext")), "\n")
-        print("DOXY_CLIST_HYPER_ENTRY", DOXY_CLIST_HYPER_ENTRY.format("hyperlink", "hypertext", "page", "testext"), "\n")
-        print("DOXY_CITEMIZE", DOXY_CITEMIZE.format("testitem"), "\n")
-        print("DOXY_CITEMIZE_CLIST", DOXY_CITEMIZE_CLIST.format("testitem", "testentry"), "\n")
-        citemize_clists_str = ""
-        for i in range(3):
-            citemize_clists_str += DOXY_CITEMIZE_CLIST.format(f"testitem_{i}", f"testentry_{i}")
-        print("DOXY_CITEMIZE_MULTI\n", DOXY_CITEMIZE.format(citemize_clists_str), "\n")
-
-    def buildTree(self, link) -> str:
-        tree = ["digraph G {\n"]
-        tree += ["node [shape=box];\n"]
-        self.addChildLinkNames(tree, link)
-
-        # tree += ["node [shape=ellipse, color=blue, fontcolor=blue];\n"]
-        # addChildJointNames(tree, link)
-
-        tree += ["}\n"]
-
-        return "".join(tree)
-    
-    def addChildLinkNames(self, tree: list, link) -> None:
-        tree += [f"\"{link.name}\" [label=\"link.name\"];\n"]
-        for child in link.children:
-            self.addChildLinkNames(child, tree, link)
-
-    def name2Ref(self, name: str) -> str:
-        return self.name + "__" + name
-    
-    def removePath(self, pth: str, pattern: str) -> str:
-        return pth.replace(pattern+"/", "")
-    
-    def escapeUnderscore(self, input_str: str) -> str:
-        return input_str.replace("_", self.escape_seq)
-    
-    def escapeDollar(self, input_str: str) -> str:
-        return input_str.replace("$", "\$")
-    
-    def escapeHash(self, input_str: str) -> str:
-        return input_str.replace("#", "\#")
-    
-    def escapeBrackets(self, input_str: str) -> str:
-        out = input_str.replace("[", "'")
-        out = out.replace("]", "'")
-
-        return out
-    
-    def rmWhiteSpace(self, input_str: str) -> str:
-        out = re.sub(r' {2,}', ' ', input_str)
-        return out
-
-    def escapeAll(self, input_str: str) -> str:
-        esc = self.escapeBrackets(input_str)
-        esc = self.escapeDollar(esc)
-        esc = self.escapeUnderscore(esc)
-        esc = self.escapeHash(esc)
-        esc = self.rmWhiteSpace(esc)
-        return esc
-
-    def newpage(self) -> None:
-        self.tex +=  NEWPAGE
-
-    def newline(self) -> None:
-        self.tex += NEWLINE
-
-    def hypertarget(self, target: str, name: str="") -> None:
-        self.tex += HYPERTARGET.format(self.name2Ref(target), self.escapeAll(name))
-
-    def section(self, name: str, label: str) -> None:
-        self.tex += DOXY_SEC.format(self.escapeAll(name), label)
-
-    def subsection(self, name: str, label: str, text: str) -> None:
-        self.tex += DOXY_SUBSEC.format(self.escapeAll(name), label, self.escapeAll(text))
-
-    def subsubsection(self, name: str, label: str, text: str) -> None:
-        self.tex += DOXY_SUBSUBSEC.format(self.escapeAll(name), label, self.escapeAll(text))
-
-    def clist(self, text: str) -> str:
-        self.tex += DOXY_CLIST.format(text)
-
-    def citem(self, title: str, text: str) -> str:
-        self.tex += DOXY_CITEMIZE.format(title, text)
-
-    def clistHyperEntry(self, link_target: str, hlink_text: str, text: str="") -> str:
-        return DOXY_CLIST_HYPER_ENTRY.format(self.name2Ref(link_target), self.escapeAll(hlink_text), link_target, self.escapeAll(text))
-    
-    def clistEntry(self, name: str, value: str, text: str) -> str:
-        return DOXY_CLIST_ENTRY.format(self.escapeAll(name), self.escapeAll(value), self.escapeAll(text))
-    
-    def citemVarEntry(self, name: str, value: str, text: str) -> str:
-        return DOXY_CITEMIZE_CLIST.format(f"\\textbf{{{self.escapeAll(name)}}}"+":" , self.escapeAll(value), self.escapeAll(text))
-    
-    def citemParEntry(self, name: str, value: str) -> str:
-        return DOXY_CITEMIZE_CLIST.format(f"\\textbf{{{self.escapeAll(name)}}}" , "", self.escapeAll(value))
-
-    def save(self) -> str:
-        if self.filepath is None:
-            return self.tex  # to string
-        
-        with open(self.filepath + '.tex', 'w') as fw:
-            fw.write(self.tex) # to file
-        return f'Tex saved to {self.filepath}.tex'
-
-class XDox():
-    DOC = 'doc'
-    FILENAME = 'fn'
-    PKGNAME = 'pkg'
-
-    def __init__(self,
-                            outpth: str,
-                            rm_pattern: str,
-                            rm_file_part: str = os.getcwd(),
-                            ) -> None:
-        
-        print("Creating latex documentation in", outpth if outpth is not None else 'stdout')
-        self.name = 'xacro_latex_doc'
-        self.docs = {}
-        self.args_documented = {}
-        self.rm_pattern = rm_pattern if rm_pattern is not None else ''
-        self.tex = XTex(self.name, outpth)
-        self.doc_type = 'launch' if launchfile else 'urdf'
-        self.rm_file_part = rm_file_part
-        self.tree = XTree()
-
-    def addDoc(self, name: str, filename: str, doc: xml.dom.minidom.Document) -> None:
-        if self.rm_pattern not in filename: # ignore
-            print(f"Adding documentation for {self.doc_type} file: ", name)
-            pkg_name = filename.replace('/launch', '')
-            pkg_name = pkg_name.split("/")[-1]
-            self.docs.update( {name: {self.DOC: doc, self.FILENAME: filename, self.PKGNAME: pkg_name}} )
-
-    def fileList(self, files: dict) -> None:
-        self.tex.newpage()
-        self.tex.section("File Index", f"sw:{self.name}_file_index")
-        self.tex.subsection("File List", f"sw::{self.name}_file_list", "Here is a list of all files:")
-        lststr = "".join( [self.tex.clistHyperEntry(f"sw:{self.name}__{name}_file_{self.doc_type}_doc", self.tex.removePath(f, self.rm_file_part)) for name, f in files.items()] )
-        self.tex.clist(lststr)
-
-    def genDoc(self) -> None:
-        # gen file list
-        self.fileList( {name: dct[self.FILENAME] for name, dct in self.docs.items()} )
-        self.tex.newpage()
-        self.tex.section("Launchfiles Documentation", f"sw:{self.name}__file_doc")
-
-        # gen content per directory
-        last_dir = ''
-        for name, dct in self.docs.items():
-            print("Generating latex documentation for", name)
-
-            file_dir = os.path.dirname(dct[self.FILENAME])
-            if file_dir != last_dir:
-                # new directory
-                if last_dir != '':
-                    self.tex.newpage()
-                self.tex.hypertarget(dct[self.PKGNAME])
-                self.tex.subsection(name + " Package", f"sw:{self.name}__{dct[self.PKGNAME]}_pkg_{self.doc_type}_doc", "")
-                last_dir = file_dir 
-            
-            # extract content
-            self._procDoc(name, dct)
-
-    def _procDoc(self, name: str, dct: dict) -> None:        
-        doc = dct[self.DOC]
-        lib: xml.dom.minidom.Element = doc.documentElement
-        self.tex.subsubsection("File " + name, f"sw:{self.name}__{name}_file_{self.doc_type}_doc", "")
-
-        print(lib.toprettyxml())
-
-        # self._procArgs(lib)
-        # self.tex.newpage()
-        # self._procParams(lib)
-        # self.tex.newpage()
-        # self._procGroups(lib)
-        # self.tex.newpage()
-        # self._procText(lib)
-        # self.tex.newpage()
-        # self._procComment(lib)
-        # self.tex.newpage()
-        # self._procIncludes(lib)
-        # self.tex.newpage()
-
-    def _procIncludes(self, lib: xml.dom.minidom.Element) -> None:
-        include_list = ""
-        includes = lib.getElementsByTagName("include")
-        if len(includes) == 0:
-            return 
-        
-        for i in includes:
-            print(i.getAttribute("if"))
-            print(i.hasChildNodes())
-
-            exit(0)
-
-    def _procGroups(self, lib: xml.dom.minidom.Element) -> None:
-        group_list = ""
-        groups = lib.getElementsByTagName("group")
-        if len(groups) == 0:
-            return 
-        
-        for g in groups:
-            print(g.toprettyxml())
-
-    def _procText(self, lib: xml.dom.minidom.Element) -> None:
-        text_list = ""
-        texts = lib.getElementsByTagName("#text")
-        if len(texts) == 0:
-            return 
-        
-        for t in texts:
-            print(t.toprettyxml())
-
-    def _procComment(self, lib: xml.dom.minidom.Element) -> None:
-        com_list = ""
-        comments = lib.getElementsByTagName("#comment")
-        if len(comments) == 0:
-            return 
-        
-        for c in comments:
-            print(c.toprettyxml())
-
-    def _procArgs(self, lib: xml.dom.minidom.Element) -> None:
-        args_list = ""
-        args = lib.getElementsByTagName("arg")
-        if len(args) == 0:
-            return 
-        
-        for a in args:
-            n = a.getAttribute("name") if a.hasAttribute("name") else "?"
-            v = a.getAttribute("value") if a.hasAttribute("value") else a.getAttribute("default") if a.hasAttribute("default") else "n/a"
-            d = a.getAttribute("doc") if a.hasAttribute("doc") else "n/a"
-            args_list += self.tex.citemVarEntry(n, v ,d)
-
-        if "\item" in args_list:
-            self.tex.citem("Args:~~~~~~\small{name}~~~~~~~~~~\small{default}", args_list)
-
-    def _procParams(self, lib: xml.dom.minidom.Element) -> None:
-        params_list = ""
-        params = lib.getElementsByTagName("param")
-        val = 'command'
-        if len(params) == 0:
-            return 
-        
-        for p in params:
-            n = p.getAttribute("name") if p.hasAttribute("name") else "?"
-            if p.hasAttribute("command"):
-                c = p.getAttribute("command") 
-                c = c.replace(") ", ")\\\\\n \small\item\em ")
-            elif p.hasAttribute("value"):
-                c = p.getAttribute("value")
-                val = 'value'
-
-            params_list += self.tex.citemParEntry(n, c)
-            # add line breaks
-            self.tex.newline()
-
-        if "\item" in params_list:
-            self.tex.citem(f"Params:\\hspace{{2cm}}\small{{name}}\\hspace{{2cm}}\\small{{{val}}}" + ("\\hspace{{2cm}}\\small{{args}}" if val == 'command' else ""), params_list)
-            self.tex.newpage()
-
-    def writeDoc(self) -> str:
-        return self.tex.save()
-
 # 0
 def main():
-    global launchfile
 
     opts, input_file_name = process_args(sys.argv[1:])
 
     #########################
-    # get out path
-    out_path = opts.output
-    # get mapping args appended to the file path argument
-    mappings = opts.mappings
-
-    # set global flag whether to process launchfiles
-    launchfile = mappings.get("parse_launchfiles") is not None
-    # check
-    if '.launch' in input_file_name and not launchfile:
-        raise Exception("Input format is .launch but 'xacro <filename> parse_launchfiles:=True|<recursive search pattern>' arg is missing!")
-
-    # {'mappings': {'parse_launchfiles': directory/**/*.launch}} -> recursive search
-    # {'mappings': {'parse_launchfiles': True}} -> single file
-    pattern = mappings.get("parse_launchfiles")
-    rm_pattern = mappings.get("rm_pattern")
-    input_files = glob.glob(pattern, recursive=True) if isinstance(pattern, str) and '*.launch' in pattern else [input_file_name]
-    input_files = sorted(input_files)
     # documentation
-    xdox = XDox(None if out_path is None else os.path.dirname(out_path) if '.' in os.path.basename(out_path) else out_path,
-                                  rm_pattern)
-    # reset path for further processing
-    opts.output = None if out_path is None else None if not '.' in os.path.basename(out_path) else out_path
-
-    try:
-        for fl in input_files:
-            # open and process file
-            doc: xml.dom.minidom.Document = process_file(fl, **vars(opts))
-            # add to doc
-            name = os.path.basename(fl)
-            name = os.path.splitext(name)[0]
-            xdox.addDoc(name, fl, doc)
-
-        # generate latex doc
-        xdox.genDoc()
-
+    opts.output = xdox.init(opts.output, opts.mappings.get("rm_pattern"), input_file_name, )
     #########################
 
+    try:
+         # open and process file
+        doc: xml.dom.minidom.Document = process_file(input_file_name, **vars(opts))
         # open the output file
         out = open_output(opts.output)
 
@@ -1556,6 +1200,7 @@ def main():
         out.close()
 
     #######################
-    # write doc
+    # create doc
     print("\nLatex documentation:")
+    xdox.genDoc()
     print(xdox.writeDoc())
