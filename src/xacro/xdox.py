@@ -141,7 +141,7 @@ class XDox():
 
 		# set doc directory 
 		self.doc_dir = None if outpth is None else os.path.dirname(outpth) if '.' in os.path.basename(outpth) else outpth
-		if not os.path.exists(self.doc_dir):
+		if self.doc_dir is not None and not os.path.exists(self.doc_dir):
 			os.makedirs(self.doc_dir, exist_ok=True)
 
 		self.rm_pattern = rm_pattern if rm_pattern is not None else ''
@@ -156,9 +156,9 @@ class XDox():
 		self.docs = {self.root_file: {self.LIB: None, self.TEX: XTex(self.root_file, self.doc_dir), self.FILENAME: self.shortPath(input_filename, self.rm_file_part)}}
 		self.args_documented = {}
 
-		# tree graph
-		self.tree = "digraph G {\nrankdir=LR;\nfontname=\"Bitstream Vera Sans\";\nfontsize=8;\nnode [shape=box, fontname=\"Bitstream Vera Sans\", fontsize=8];\n"
-		self.edges = "node [shape=ellipse, color=blue, fontcolor=blue, fontname=\"Bitstream Vera Sans\", fontsize=8];\n"
+		# tree graph 
+		self.tree = "digraph G {\nrankdir=LR;\nfontname=\"Bitstream Vera Sans\";\nfontsize=25;\nnode [shape=box, fontname=\"Bitstream Vera Sans\", fontsize=3, color=blue, fontcolor=blue];\n"
+		self.edges = ""
 
 		self.rospack = RosPack()
 
@@ -183,10 +183,15 @@ class XDox():
 				self.traverseGroups(child, files, level +1)
 
 	def getTransitionLabel(self, ns: str, if_cond: str, unless_cond: str, group_level: int=1) -> str:
-		return TREE_LABEL.format(((f"group {group_level}:" if group_level > 1 and ns is not None else "") + "ns: " + self.title_tex.escapeDollar(ns)  +"\n") if ns is not None else "",
-															((f"group {group_level}:" if group_level > 1 and if_cond is not None else "") + "if: " + self.title_tex.escapeDollar(if_cond)  +"\n") if if_cond is not None else "",
-															((f"group {group_level}:" if group_level > 1 and unless_cond is not None else "") + "unless: " + self.title_tex.escapeDollar(unless_cond)  +"\n") if unless_cond is not None else "",
+		return TREE_LABEL.format(("ns: " + ns  +"\n") if ns is not None else "",
+															( "if: " + if_cond  +"\n") if if_cond is not None and not "allow_trajectory_execution" in if_cond else "",
+															("unless: " + unless_cond +"\n") if unless_cond is not None else "",
 															 )
+		# TODO: add parent group's conditionals
+		# return TREE_LABEL.format(((f"group {group_level}: " if group_level > 1 and ns is not None else "") + "ns: " + self.title_tex.escapeDollar(ns)  +"\n") if ns is not None else "",
+		# 													((f"group {group_level}: " if group_level > 1 and if_cond is not None else "") + "if: " + self.title_tex.escapeDollar(if_cond)  +"\n") if if_cond is not None else "",
+		# 													((f"group {group_level}: " if group_level > 1 and unless_cond is not None else "") + "unless: " + self.title_tex.escapeDollar(unless_cond)  +"\n") if unless_cond is not None else "",
+		# 													 )
 
 	def handleGroup(self, group: xml.dom.minidom.Element, root_filename: str) -> dict:
 		files = {}
@@ -207,11 +212,22 @@ class XDox():
 						label = other_label + label
 
 			# grow tree
+			root_fn = self.getFilename(root_filename)
 			fn = self.getFilename(fl)
-			self.addNode(fn)
-			self.addEdge(self.getFilename(root_filename), fn, label)
+			self.addNode(fn, fn)
+			self.addEdge(root_fn, fn, label)
 
 		return files
+	
+	def subVarArg(self, input_str: str) -> str:
+		match = re.search(r"\$\(\s*arg\s+([^)]+)\s*\)", input_str)
+		if match:
+			arg = match.group(1)
+			subpath = re.sub(r'\$\(arg \S+\)', '', input_str)
+			subpath = subpath.strip()
+			return arg + subpath
+		
+		return input_str
 
 	def resolvePath(self, filepath: str) -> str:
 		match = re.search(r"\$\(\s*find\s+([^)]+)\s*\)", filepath)
@@ -225,11 +241,13 @@ class XDox():
 			print("Cannot resolve", filepath)
 			return ""
 	
-	def addNode(self, node_name: str) -> None:
-		self.tree += f"\"{node_name}\" [label=\"{node_name}\"];\n"
+	def addNode(self, node_name: str, hlink: str, color: str="blue", shape: str="box") -> None:
+		# label = HYPERLINK.format(self.title_tex.name2Ref(hlink), self.title_tex.escapeAll(hlink))
+		# self.tree += f"\"{self.title_tex.escapeAll(node_name)}\" [label=\"{label}\"];\n"
+		self.tree += f"\"{self.title_tex.escapeAll(node_name)}\" [label=\"{node_name}\", color=\"{color}\",shape=\"{shape}\"];\n"
 
 	def addEdge(self, parent: str, child: str, label: str) -> None:
-		self.edges += f"\"{parent}\" -> \"{child}\" [label=\"{label}\"];\n"
+		self.edges += f"\"{self.title_tex.escapeAll(parent)}\" -> \"{self.title_tex.escapeAll(child)}\" [label=\"{self.title_tex.escapeAll(label)}\"];\n"
 
 	def getTree(self) -> str:
 		self.tree += self.edges + "}\n"
@@ -277,7 +295,7 @@ class XDox():
 		for name, dct in self.docs.items():
 			print("Generating latex documentation for", name)
 			self._procDoc(name, dct[self.LIB], dct[self.TEX])
-			self.title_tex.input(os.path.join(self.doc_dir, name))
+			self.title_tex.input(name)
 
 	def fileList(self, tex: XTex, files: dict) -> None:
 		tex.newpage()
