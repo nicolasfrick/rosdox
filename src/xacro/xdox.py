@@ -1,10 +1,12 @@
 import os
+import sys
 import re
+import dot2tex as d2t
 import xml.dom.minidom
 import xml.dom.minicompat
 from rospkg import RosPack
-from typing import List
 from .tex_strings import *
+from .t2pdf import t2pdf_main
 
 class XTex():
 	def __init__(self,
@@ -150,7 +152,7 @@ class XDox():
 		self.extension = "." + self.doc_type
 		self.rm_file_part = rm_file_part
 		
-		self.title_tex = XTex("Titlepage", self.doc_dir)
+		self.title_tex = XTex(self.name, self.doc_dir)
 		self.root_file = self.getFilename(input_filename)
 		self.current_file = self.root_file
 		self.docs = {self.root_file: {self.LIB: None, self.TEX: XTex(self.root_file, self.doc_dir), self.FILENAME: self.shortPath(input_filename, self.rm_file_part)}}
@@ -187,14 +189,10 @@ class XDox():
 															( "if: " + if_cond  +"\n") if if_cond is not None and not "allow_trajectory_execution" in if_cond else "",
 															("unless: " + unless_cond +"\n") if unless_cond is not None else "",
 															 )
-		# TODO: add parent group's conditionals
-		# return TREE_LABEL.format(((f"group {group_level}: " if group_level > 1 and ns is not None else "") + "ns: " + self.title_tex.escapeDollar(ns)  +"\n") if ns is not None else "",
-		# 													((f"group {group_level}: " if group_level > 1 and if_cond is not None else "") + "if: " + self.title_tex.escapeDollar(if_cond)  +"\n") if if_cond is not None else "",
-		# 													((f"group {group_level}: " if group_level > 1 and unless_cond is not None else "") + "unless: " + self.title_tex.escapeDollar(unless_cond)  +"\n") if unless_cond is not None else "",
-		# 													 )
 
 	def handleGroup(self, group: xml.dom.minidom.Element, root_filename: str) -> dict:
 		files = {}
+		label = ""
 		# find file in groups
 		self.traverseGroups(group, files, 1)
 		for fl, item in files.items():
@@ -249,20 +247,41 @@ class XDox():
 	def addEdge(self, parent: str, child: str, label: str) -> None:
 		self.edges += f"\"{self.title_tex.escapeAll(parent)}\" -> \"{self.title_tex.escapeAll(child)}\" [label=\"{self.title_tex.escapeAll(label)}\"];\n"
 
-	def getTree(self) -> str:
+	def saveTree(self) -> str:
+		# terminate tree
 		self.tree += self.edges + "}\n"
-		return self.tree
-	
-	def writeTree(self) -> str:
-		tree = self.getTree()
-		if self.doc_dir is None:
-			return tree + "\n\n"
-		
-		gv_path = os.path.join(self.doc_dir, "grapviz_tree.gv")
-		with open(gv_path, "w") as fw:
-			fw.write(tree)
+		tree_path = os.path.join(self.doc_dir, "grapviz_tree")
 
-		return "Tree saved to " + gv_path + "\n"
+		# gen tex file
+		tikz_tree = d2t.dot2tex(self.tree, 
+														format='tikz', 
+														crop=True,
+														figonly=True,
+														)
+		# gen standalone tex file
+		tikz_tree_standalone = d2t.dot2tex(self.tree, 
+																				format='tikz', 
+																				crop=True,
+																				figonly=False,
+																				)
+		# dot to string
+		if self.doc_dir is None:
+			return tikz_tree + "\n\n"
+		# dot to file
+		with open(tree_path + ".gv", "w") as fw:
+			fw.write(self.tree)
+		# tikz to tex file
+		with open(tree_path + ".tex", "w") as fw:
+			fw.write(tikz_tree)
+		# tikz to standalone tex file
+		t2pdf_path = tree_path + "_standalone.tex"
+		with open(t2pdf_path, "w") as fw:
+			fw.write(tikz_tree_standalone)
+		# tikz to pdf
+		sys.argv[1:] = [t2pdf_path, f"--output={tree_path + '.pdf'}", "--quiet" ]
+		t2pdf_main()
+
+		return "Tree saved to " + self.doc_dir + "/grapviz_tree.tex\n"
 
 	def shortPath(self, filepath: str, rm: str) -> str:
 		return filepath.replace(rm, "")
@@ -424,7 +443,7 @@ class XDox():
 
 	def writeDoc(self) -> str:
 		res_str = self.title_tex.save()
-		res_str += self.writeTree()
+		res_str += self.saveTree()
 		for dct in self.docs.values():
 			res_str += dct[self.TEX].save()
 		return  res_str
