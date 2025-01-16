@@ -930,6 +930,7 @@ def eval_all(node, macros, symbols):
 		pass
 	
 	# current file's root node
+	root_filename = None
 	if node.hasAttribute("filename"):
 		root_filename = node.getAttribute("filename")
 		xdx.addDoc(root_filename, node) # replace duplicates
@@ -942,45 +943,19 @@ def eval_all(node, macros, symbols):
 			node: xml.dom.minidom.Element = node # assign the type
 
 			# doc included files
-			if node.nodeName == 'group':
-				files = {}
-				# find file in groups
-				xdx.traverseGroups(node, files, 0)
-				for fl, item in files.items():
-					# grow tree
-					ns = item["ns"]
-					if_cond = item["if"]
-					unless_cond = item["unless"]
-					level = item["level"]
-					label =  "x" # f"{"ns " + ns  +"\n" if ns is not None else ""} \
-					# 				  {"if " + if_cond  +"\n" if if_cond is not None else ""} \
-					# 				  {"unless " + unless_cond  +"\n" if unless_cond is not None else ""}"
-					if level > 0:
-						# add lower levels
-						for other_item in files.values():
-							other_level = other_item["level"]
-							if other_level < level:
-								ns = other_item["ns"]
-								if_cond = other_item["if"]
-								unless_cond = other_item["unless"]
-								other_label = "y" # f"{"ns " + ns  +"\n" if ns is not None else ""} \
-												   	 		#    {"if " + if_cond  +"\n" if if_cond is not None else ""} \
-												    		#    {"unless " + unless_cond  +"\n" if unless_cond is not None else ""}" + label
-								label = other_label
+			if node.nodeName == 'group' and root_filename is not None:
+					files = xdx.handleGroup(node, root_filename)
+					for fn in files:
+						# enter recursion
+						process_file(fn)
 
-					fn = xdx.getFilename(fl)
-					xdx.addNode(fn)
-					xdx.addEdge(xdx.getFilename(root_filename), fn, label)
-					# enter recursion
-					process_file(xdx.resolvePath(fl))
-
-			elif node.nodeName == 'include':
+			elif node.nodeName == 'include' and root_filename is not None:
 				if node.hasAttribute("file"):
 					file = node.getAttribute("file")
 					# grow tree
-					label = "z" # f"{"ns " + node.getAttribute("ns") + "\n" if node.hasAttribute("ns") else ""} \
-									#   {"if " + node.getAttribute("if") + "\n" if node.hasAttribute("if") else ""} \
-									#   {"unless " + node.getAttribute("unless") if node.hasAttribute("unless") else ""}"					
+					label = xdx.getTransitionLabel(node.getAttribute("ns") if node.hasAttribute("ns") else None,
+																			     node.getAttribute("if") if node.hasAttribute("if") else None, 
+																				 node.getAttribute("unless") if node.hasAttribute("unless") else None)				
 					fn = xdx.getFilename(file)
 					xdx.addNode(fn)
 					xdx.addEdge(xdx.getFilename(root_filename), fn, label)

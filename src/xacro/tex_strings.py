@@ -7,6 +7,7 @@ NEWPAGE = "\n\\newpage\n\n"
 NEWLINE = "\n\\vspace{2\\baselineskip}"
 NEWLINE_FMT = "\n\\vspace{{2\\baselineskip}}"
 
+INPUT = f"\input{EMBRACED_ARG}\n" # 1 arg
 PAGEREF = f"\pageref{EMBRACED_ARG}" # 1 arg
 MBOX_FMT = f"\mbox{EMBRACING_STR_OPEN}{EMBRACED_ARG}{EMBRACING_STR_CLOSE}" # 1 arg
 HYPERTARGET = f"\hypertarget{EMBRACED_ARG}{EMBRACED_ARG}" # 2 args
@@ -35,4 +36,4 @@ SUBSEC_LABEL = "sw:{}_doc__{}_subsec" #  2 arg: doc_type, filename
 FILE_LABEL = "sw:{}_doc__{}_file" # 2 args: doc_type, filename
 ARG_LABEL = "sw:{}_doc__{}_arg" # 2 args: doc_type, argname
 
-INPUT = "\input{{{}}}\n"
+TREE_LABEL = "{}{}{}"
