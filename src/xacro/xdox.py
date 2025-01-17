@@ -276,9 +276,8 @@ class XDox():
 			return ""
 	
 	def addNode(self, node_name: str, hlink: str, color: str="blue", shape: str="box") -> None:
-		# label = HYPERLINK.format(self.title_tex.name2Ref(hlink), self.title_tex.escapeAll(hlink))
-		# self.tree += f"\"{self.title_tex.escapeAll(node_name)}\" [label=\"{label}\"];\n"
-		self.tree += f"\"{self.title_tex.escapeAll(node_name)}\" [label=\"{node_name}\", color=\"{color}\",shape=\"{shape}\"];\n"
+		label = HYPERLINK.format(self.title_tex.name2Ref(hlink), self.title_tex.escapeAll(node_name))
+		self.tree += f"\"{self.title_tex.escapeAll(node_name)}\" [label=\"{label}\", color=\"{color}\",shape=\"{shape}\"];\n"
 
 	def addEdge(self, parent: str, child: str, label: str) -> None:
 		edge = f"\"{self.title_tex.escapeAll(parent)}\" -> \"{self.title_tex.escapeAll(child)}\" [label=\"{self.title_tex.escapeAll(label)}\"];\n"
@@ -286,6 +285,33 @@ class XDox():
 			return
 		self.edges_documented.append(edge)
 		self.edges += edge
+
+	def cleanHlink(self, match: re.Match) -> str:
+		content = match.group(1) 
+		updated_content = content.replace("\\", "")  
+		return f"\\hyperlink{{{updated_content}}}"
+	
+	def cleanTikzTree(self, tikz_tree: str) -> str:
+		pattern = r"\$\\backslash\$hyperlink"
+		replacement = r"\\hyperlink"
+		tikz_tree = re.sub(pattern, replacement, tikz_tree)
+
+		pattern = r"\\\{"
+		replacement = r"{"
+		tikz_tree = re.sub(pattern, replacement, tikz_tree)
+
+		pattern = r"\\\}"
+		replacement = r"}"
+		tikz_tree = re.sub(pattern, replacement, tikz_tree)
+
+		pattern = r"\$\\backslash\$"
+		replacement = r"" 
+		tikz_tree = re.sub(pattern, replacement, tikz_tree)
+
+		pattern = r"\\hyperlink\{([^}]+)\}"
+		tikz_tree = re.sub(pattern, self.cleanHlink, tikz_tree)
+
+		return tikz_tree
 
 	def saveTree(self) -> str:
 		# terminate tree
@@ -298,6 +324,7 @@ class XDox():
 														crop=True,
 														figonly=True,
 														)
+		tikz_tree = self.cleanTikzTree(tikz_tree)
 
 		# gen standalone tex file
 		tikz_tree_standalone = d2t.dot2tex(self.tree, 
