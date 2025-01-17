@@ -5,6 +5,7 @@ import dot2tex as d2t
 import xml.dom.minidom
 import xml.dom.minicompat
 from rospkg import RosPack
+from typing import Union
 from .tex_strings import *
 from .t2pdf import t2pdf_main
 
@@ -63,6 +64,9 @@ class XTex():
 
 		return out
 	
+	def escapeVarArg(self, input_str: str) -> str:
+		return input_str.replace("(", "'").replace(")", "'").replace("$","")
+	
 	def rmWhiteSpace(self, input_str: str) -> str:
 		out = re.sub(r' {2,}', ' ', input_str)
 		return out
@@ -72,6 +76,7 @@ class XTex():
 		esc = self.escapeDollar(esc)
 		esc = self.escapeUnderscore(esc)
 		esc = self.escapeHash(esc)
+		esc = self.escapeVarArg(esc)
 		esc = self.rmWhiteSpace(esc)
 		return esc
 
@@ -129,6 +134,10 @@ class XDox():
 	FILENAME = 'fn'
 	PKGNAME = 'pkg'
 
+	LAUNCHFILE_NODE = 'node'
+	LAUNCHFILE_GROUP = 'group'
+	LAUNCHFILE_INCLUDE = 'include'
+
 	def __init__(self) -> None:
 		pass
 
@@ -137,6 +146,7 @@ class XDox():
 					rm_pattern: str,
 					input_filename: str,
 					rm_file_part: str = os.getcwd(),
+					info: bool=True,
 					) -> str:
 		
 		self.name = 'xacro_latex_doc'
@@ -151,11 +161,12 @@ class XDox():
 		self.doc_type = 'launch' if self.launchfile else 'xacro'
 		self.extension = "." + self.doc_type
 		self.rm_file_part = rm_file_part
+		self.info = info
 		
 		self.title_tex = XTex(self.name, self.doc_dir)
 		self.root_file = self.getFilename(input_filename)
 		self.current_file = self.root_file
-		self.docs = {self.root_file: {self.LIB: None, self.TEX: XTex(self.root_file, self.doc_dir), self.FILENAME: self.shortPath(input_filename, self.rm_file_part)}}
+		self.docs = {self.root_file: {self.LIB: None, self.TEX: XTex(self.root_file, self.doc_dir), self.FILENAME: self.title_tex.removePath(input_filename, self.rm_file_part)}}
 		self.args_documented = {}
 
 		# tree graph 
@@ -164,60 +175,84 @@ class XDox():
 
 		self.rospack = RosPack()
 
-		print("Creating latex documentation for", "launchfiles" if self.launchfile else "xacro", "in", self.doc_dir if self.doc_dir is not None else 'stdout')
+		self.printInfo("Creating latex documentation for", "launchfiles" if self.launchfile else "xacro", "in", self.doc_dir if self.doc_dir is not None else 'stdout')
 
 		# reset path for xacro output
 		return None if outpth is None else None if not '.' in os.path.basename(outpth) else outpth
 	
-	def traverseGroups(self, group: xml.dom.minidom.Element, files: dict, level: int) -> None:
-		for child in group.childNodes:
-			if child.nodeName == 'include':
+	def printInfo(self, *msg) -> None:
+		if self.info:
+			print(*msg)
 
-				if child.hasAttribute("file"):
-					file = self.resolvePath(child.getAttribute("file"))
-					files.update( {file: {"ns": child.getAttribute("ns") if child.hasAttribute("ns") else None, 
-														"if": child.getAttribute("if") if child.hasAttribute("if") else None, 
-														"unless": child.getAttribute("unless") if child.hasAttribute("unless") else None, 
-														"level": level,
-														}} )
+	def getTransitionLabel(self, node: xml.dom.minidom.Element) -> str:
+		label = TREE_LABEL.format(("ns: " + node.getAttribute("ns")  +" ") if node.hasAttribute("ns") else "",
+															  ( "if: " + node.getAttribute("if")  +" ") if node.hasAttribute("if") else "",      # and not "allow_trajectory_execution" in if_cond
+															  ("unless: " + node.getAttribute("unless") +"\n") if node.hasAttribute("unless") else "",
+															  )
+		return label
+	
+	def handleLaunchGroup(self, node: xml.dom.minidom.Element, root_filename: str, included_files: list, parent_label: str= "") -> None:
+		group_label = self.getTransitionLabel(node)
+
+		for child in node.childNodes:
+			if child.nodeName == self.LAUNCHFILE_GROUP:
+					self.handleLaunchGroup(child, root_filename, included_files, parent_label + group_label)
+						
+			elif child.nodeName == self.LAUNCHFILE_INCLUDE:
+					file = self.handleLaunchFile(child, root_filename, parent_label + group_label)
+					included_files.append(file)
+
+			elif child.nodeName == self.LAUNCHFILE_NODE:
+				self.handleLaunchNode(child, root_filename, parent_label + group_label)
+
+	def handleLaunchFile(self, node: xml.dom.minidom.Element, root_filename: str, parent_label: str= "") -> str:
+		assert(node.hasAttribute("file"))
+		file = node.getAttribute("file")
+
+		# grow tree
+		fn = self.getFilename(file)
+		label = self.getTransitionLabel(node)				
+		self.addNode(fn, root_filename)
+		self.addEdge(root_filename, fn, parent_label + label)
+
+		return file
+	
+	def handleLaunchNode(self, node: xml.dom.minidom.Element, root_filename: str, parent_label: str= "") -> None:
+			# format name
+			node_name = f'{node.getAttribute("pkg") if node.hasAttribute("pkg") else ""} : \
+											{node.getAttribute("type") if node.hasAttribute("type") else ""} :\
+											{node.getAttribute("name") if node.hasAttribute("name") else ""}' # concatenate names
+
+			# grow tree
+			label = self.getTransitionLabel(node)		
+			self.addNode(node_name, root_filename, shape="ellipse")
+			self.addEdge(root_filename, node_name, parent_label + label)
+
+	def handleElement(self, node: xml.dom.minidom.Element, root_filepath: Union[None, str]) -> list:
+		included_files = []
+		if root_filepath is None:
+			return included_files
+		root_filename = self.getFilename(root_filepath)
+
+		# handle includes and nodes indirectly
+		if node.nodeName == self.LAUNCHFILE_GROUP:
+				files = []
+				self.handleLaunchGroup(node, root_filename, files)
+				included_files.extend(files)
 					
-			elif child.nodeName == 'group':
-				self.traverseGroups(child, files, level +1)
+        # handle includes directly
+		elif node.nodeName == self.LAUNCHFILE_INCLUDE:
+				file = self.handleLaunchFile(node, root_filename)
+				included_files.append(file)
 
-	def getTransitionLabel(self, ns: str, if_cond: str, unless_cond: str, group_level: int=1) -> str:
-		return TREE_LABEL.format(("ns: " + ns  +"\n") if ns is not None else "",
-															( "if: " + if_cond  +"\n") if if_cond is not None and not "allow_trajectory_execution" in if_cond else "",
-															("unless: " + unless_cond +"\n") if unless_cond is not None else "",
-															 )
+        # handle nodes directly
+		elif node.nodeName == self.LAUNCHFILE_NODE:
+			self.handleLaunchNode(node, root_filename)
 
-	def handleGroup(self, group: xml.dom.minidom.Element, root_filename: str) -> dict:
-		files = {}
-		label = ""
-		# find file in groups
-		self.traverseGroups(group, files, 1)
-		for fl, item in files.items():
-			# grow tree
-			level = item["level"]
-			label = self.getTransitionLabel(item["ns"], item["if"], item["unless"])
-
-			# add parent label
-			if level > 1:
-				for other_item in files.values():
-					other_level = other_item["level"]
-
-					if other_level < level:
-						other_label = self.getTransitionLabel(other_item["ns"], other_item["if"], other_item["unless"], level)
-						label = other_label + label
-
-			# grow tree
-			root_fn = self.getFilename(root_filename)
-			fn = self.getFilename(fl)
-			self.addNode(fn, fn)
-			self.addEdge(root_fn, fn, label)
-
-		return files
+		return [self.resolvePath(f) for f in included_files]
 	
 	def subVarArg(self, input_str: str) -> str:
+		"""$(arg v)/path -> v/path"""
 		match = re.search(r"\$\(\s*arg\s+([^)]+)\s*\)", input_str)
 		if match:
 			arg = match.group(1)
@@ -258,12 +293,14 @@ class XDox():
 														crop=True,
 														figonly=True,
 														)
+
 		# gen standalone tex file
 		tikz_tree_standalone = d2t.dot2tex(self.tree, 
 																				format='tikz', 
 																				crop=True,
 																				figonly=False,
 																				)
+
 		# dot to string
 		if self.doc_dir is None:
 			return tikz_tree + "\n\n"
@@ -282,9 +319,6 @@ class XDox():
 		t2pdf_main()
 
 		return "Tree saved to " + self.doc_dir + "/grapviz_tree.tex\n"
-
-	def shortPath(self, filepath: str, rm: str) -> str:
-		return filepath.replace(rm, "")
 	
 	def getFilename(self, filepath: str) -> str:
 		return os.path.basename(filepath).replace(self.extension, "").replace(".xml", "")
@@ -292,17 +326,25 @@ class XDox():
 	def isLaunchfile(self, filename: str) -> bool:
 		return '.launch' in filename
 
+	def formatFileLabel(self, name: str) -> str:
+		assert("/" not in name and "." not in name) # filename w/o extension 
+		return FILE_LABEL.format(self.doc_type, name)
+	
+	def formatArgLabel(self, name: str) -> str:
+		assert("$" not in name and "(" not in name and ")" not in name) # argname w/o braces
+		return ARG_LABEL.format(self.doc_type, name)
+
 	def addDoc(self, filepath: str, lib: xml.dom.minidom.Element) -> None:
 		if self.rm_pattern not in filepath: # ignore
 			name = self.getFilename(filepath)
 
 			if name in self.docs.keys():
 				infix = " root" if self.root_file in filepath else ""
-				print(f"Replacing documentation for {self.doc_type}{infix} file: ", name)
+				self.printInfo(f"Replacing documentation for {self.doc_type}{infix} file: ", name)
 				self.docs[name][self.LIB] = lib
 			else:
-				print(f"Adding documentation for {self.doc_type} included file: ", name)
-				self.docs.update( {name: {self.LIB: lib, self.TEX: XTex(name, self.doc_dir), self.FILENAME: self.shortPath(filepath, self.rm_file_part)}} )
+				self.printInfo(f"Adding documentation for {self.doc_type} included file: ", name)
+				self.docs.update( {name: {self.LIB: lib, self.TEX: XTex(name, self.doc_dir), self.FILENAME: self.title_tex.removePath(filepath, self.rm_file_part)}} )
 
 	def genDoc(self) -> None:
 		# gen file list
@@ -312,18 +354,18 @@ class XDox():
 
 		# gen content per file
 		for name, dct in self.docs.items():
-			print("Generating latex documentation for", name)
+			self.printInfo("Generating latex documentation for", name)
 			self._procDoc(name, dct[self.LIB], dct[self.TEX])
 			self.title_tex.input(name)
 
 	def fileList(self, tex: XTex, files: dict) -> None:
 		tex.newpage()
 		tex.subsubsection("File List", SUBSEC_LABEL.format(self.doc_type, "filelist"), "Here is a list of all files:")
-		lststr = "".join( [tex.clistHyperEntry(FILE_LABEL.format(self.doc_type, name), tex.removePath(f, self.rm_file_part)) for name, f in files.items()] )
+		lststr = "".join( [tex.clistHyperEntry(self.formatFileLabel(name), file) for name, file in files.items()] )
 		tex.clist(lststr)
 
 	def _procDoc(self, name: str, lib: xml.dom.minidom.Element, tex: XTex) -> None:        
-		tex.subsubsection(name, FILE_LABEL.format(self.doc_type, name), "Content Documentation")
+		tex.subsubsection(name, self.formatFileLabel(name), "Content Documentation")
 
 		self._procArgs(lib, tex)
 		tex.newpage()
@@ -345,8 +387,8 @@ class XDox():
 			return 
 		
 		for i in includes:
-			print(i.getAttribute("if"))
-			print(i.hasChildNodes())
+			self.printInfo(i.getAttribute("if"))
+			self.printInfo(i.hasChildNodes())
 
 			exit(0)
 
@@ -382,7 +424,7 @@ class XDox():
 			return 
 		
 		for g in groups:
-			print(g.toprettyxml())
+			self.printInfo(g.toprettyxml())
 
 	def _procText(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
 		text_list = ""
@@ -391,7 +433,7 @@ class XDox():
 			return 
 		
 		for t in texts:
-			print(t.toprettyxml())
+			self.printInfo(t.toprettyxml())
 
 	def _procComment(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
 		com_list = ""
@@ -400,7 +442,7 @@ class XDox():
 			return 
 		
 		for c in comments:
-			print(c.toprettyxml())
+			self.printInfo(c.toprettyxml())
 
 	def _procArgs(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
 		args_list = ""
@@ -441,9 +483,10 @@ class XDox():
 			tex.citem(f"Params:\\hspace{{2cm}}\small{{name}}\\hspace{{2cm}}\\small{{{val}}}" + ("\\hspace{{2cm}}\\small{{args}}" if val == 'command' else ""), params_list)
 			tex.newpage()
 
-	def writeDoc(self) -> str:
+	def writeDoc(self) -> None:
 		res_str = self.title_tex.save()
 		res_str += self.saveTree()
 		for dct in self.docs.values():
 			res_str += dct[self.TEX].save()
-		return  res_str
+
+		self.printInfo(res_str)

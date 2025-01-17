@@ -726,10 +726,13 @@ def eval_text(text, symbols):
 		if id == lex.EXPR:
 			results.append(handle_expr(lex.next()[1][2:-1]))  # rm $()
 		elif id == lex.EXTENSION:
+			##################################
+			# doc
 			if xdx.launchfile:
 				# handle $(arg value) expression in launchfile
 				# ->  just append the expression
 				results.append(lex.next()[1]) 
+			######################################
 			else:
 				results.append(handle_extension(lex.next()[1][2:-1])) # rm $()
 		elif id == lex.TEXT:
@@ -929,11 +932,11 @@ def eval_all(node, macros, symbols):
 	except xml.dom.NotFoundErr:
 		pass
 	
-	######### current file's root node ###########
+	###### if present, it's current file's root node #####
 	root_filename = None
 	if node.hasAttribute("filename"):
 		root_filename = node.getAttribute("filename")
-		xdx.addDoc(root_filename, node) # replace duplicates
+		xdx.addDoc(root_filename, node) # replaces duplicates
 	#####################################
 
 	node = node.firstChild
@@ -941,49 +944,11 @@ def eval_all(node, macros, symbols):
 	while node:
 		next = node.nextSibling
 		if node.nodeType == xml.dom.Node.ELEMENT_NODE:
-			node: xml.dom.minidom.Element = node # assign the type
 
 			################ doc included files ##################
-			node_pkg, node_name, node_type, node_ns, node_if, node_unless = None, None, None, None, None, None
-			if node.nodeName == 'group' and root_filename is not None:
-					files = xdx.handleGroup(node, root_filename)
-					for fn in files:
-						# enter recursion
-						process_file(fn)
-
-			elif node.nodeName == 'include' and root_filename is not None:
-				if node.hasAttribute("file"):
-					file = node.getAttribute("file")
-					# grow tree
-					label = xdx.getTransitionLabel(node.getAttribute("ns") if node.hasAttribute("ns") else None,
-																			     node.getAttribute("if") if node.hasAttribute("if") else None, 
-																				 node.getAttribute("unless") if node.hasAttribute("unless") else None)				
-					fn = xdx.getFilename(file)
-					xdx.addNode(fn, xdx.getFilename(fn))
-					xdx.addEdge(xdx.getFilename(root_filename), fn, label)
-					# enter recursion
-					process_file(xdx.resolvePath(file))
-
-			elif node.nodeName == 'node' and root_filename is not None:
-				if node.hasAttribute("pkg"):
-					node_pkg = node.getAttribute("pkg")
-				if node.hasAttribute("name"):
-					node_name = node.getAttribute("name")
-				if node.hasAttribute("type"):
-					node_type = node.getAttribute("type")
-				if node.hasAttribute("ns"):
-					node_ns = node.getAttribute("ns") 
-				if node.hasAttribute("if"):
-					node_if = node.getAttribute("if") 
-				if node.hasAttribute("unless"):
-					node_unless = node.getAttribute("unless")
-
-				# grow tree
-				node_name = f"{node_pkg}:{node_type}:{node_name}" # concatenate names
-				node_name = node_name.replace("(", "'").replace(")", "'").replace("$","") if "$" in node_name else node_name # rm vararg syntax
-				label = xdx.getTransitionLabel(node_ns, node_if, node_unless)		
-				xdx.addEdge(xdx.getFilename(root_filename), node_name, label)
-				xdx.addNode(node_name, xdx.getFilename(root_filename), shape="ellipse")
+			for file in xdx.handleElement(node, root_filename):
+				# solve includes recursively
+				process_file(file)
 			###################################################
 
 			# process xacro
@@ -1175,8 +1140,11 @@ def process_file(input_file_name, **kwargs):
 	init_stacks(input_file_name)
 	# parse the document into a xml.dom tree
 	doc = parse(None, input_file_name)
-	# add filepath for docs
+
+	######### add filepath for docs, signals is root file ##########
 	doc.documentElement.setAttribute("filename", input_file_name)
+	###############################################
+
 	# perform macro replacement
 	process_doc(doc, **kwargs)
 
@@ -1251,7 +1219,6 @@ def main():
 
 	#######################
 	# create documentation
-	print("\nLatex documentation:")
 	xdx.genDoc()
-	print(xdx.writeDoc())
+	xdx.writeDoc()
 	#########################
