@@ -168,6 +168,7 @@ class XDox():
 		self.current_file = self.root_file
 		self.docs = {self.root_file: {self.LIB: None, self.TEX: XTex(self.root_file, self.doc_dir), self.FILENAME: self.title_tex.removePath(input_filename, self.rm_file_part)}}
 		self.args_documented = {}
+		self.edges_documented = []
 
 		# tree graph 
 		self.tree = "digraph G {\nrankdir=LR;\nfontname=\"Bitstream Vera Sans\";\nfontsize=25;\nnode [shape=box, fontname=\"Bitstream Vera Sans\", fontsize=3, color=blue, fontcolor=blue];\n"
@@ -280,7 +281,11 @@ class XDox():
 		self.tree += f"\"{self.title_tex.escapeAll(node_name)}\" [label=\"{node_name}\", color=\"{color}\",shape=\"{shape}\"];\n"
 
 	def addEdge(self, parent: str, child: str, label: str) -> None:
-		self.edges += f"\"{self.title_tex.escapeAll(parent)}\" -> \"{self.title_tex.escapeAll(child)}\" [label=\"{self.title_tex.escapeAll(label)}\"];\n"
+		edge = f"\"{self.title_tex.escapeAll(parent)}\" -> \"{self.title_tex.escapeAll(child)}\" [label=\"{self.title_tex.escapeAll(label)}\"];\n"
+		if edge in self.edges_documented:
+			return
+		self.edges_documented.append(edge)
+		self.edges += edge
 
 	def saveTree(self) -> str:
 		# terminate tree
