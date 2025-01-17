@@ -1170,7 +1170,7 @@ def main():
 
 	#########################
 	# init documentation
-	opts.output = xdx.init(opts.output, opts.mappings.get("rm_pattern"), input_file_name, )
+	opts.output = xdx.init(input_file_name, opts.output, opts.mappings.get("ign_pattern"), opts.mappings.get("rm_pattern"), opts.mappings.get("info"))
 	#########################
 
 	try:

@@ -142,9 +142,9 @@ class XDox():
 		pass
 
 	def init(self,
+					input_filename: str,
 					outpth: str,
 					rm_pattern: str,
-					input_filename: str,
 					rm_file_part: str = os.getcwd(),
 					info: bool=True,
 					) -> str:
@@ -167,7 +167,7 @@ class XDox():
 		self.root_file = self.getFilename(input_filename)
 		self.current_file = self.root_file
 		self.docs = {self.root_file: {self.LIB: None, self.TEX: XTex(self.root_file, self.doc_dir), self.FILENAME: self.title_tex.removePath(input_filename, self.rm_file_part)}}
-		self.args_documented = {}
+		self.args_documented = []
 		self.edges_documented = []
 
 		# tree graph 
@@ -185,10 +185,47 @@ class XDox():
 		if self.info:
 			print(*msg)
 
+	def getFilename(self, filepath: str) -> str:
+		return os.path.basename(filepath).replace(self.extension, "").replace(".xml", "")
+
+	def isLaunchfile(self, filename: str) -> bool:
+		return '.launch' in filename
+
+	def formatFileLabel(self, name: str) -> str:
+		assert("/" not in name and "." not in name) # filename w/o extension 
+		return FILE_LABEL.format(self.doc_type, name)
+	
+	def formatArgLabel(self, name: str) -> str:
+		assert("$" not in name and "(" not in name and ")" not in name) # argname w/o braces
+		return ARG_LABEL.format(self.doc_type, name)
+	
+	def subVarArg(self, input_str: str) -> str:
+		"""$(arg v)/path -> v/path"""
+		match = re.search(r"\$\(\s*arg\s+([^)]+)\s*\)", input_str)
+		if match:
+			arg = match.group(1)
+			subpath = re.sub(r'\$\(arg \S+\)', '', input_str)
+			subpath = subpath.strip()
+			return arg + subpath
+		
+		return input_str
+
+	def resolvePath(self, filepath: str) -> str:
+		match = re.search(r"\$\(\s*find\s+([^)]+)\s*\)", filepath)
+		if match:
+			pkg = match.group(1)
+			pkg_path = self.rospack.get_path(pkg)
+			subpath = re.sub(r'\$\(find \S+\)', '', filepath)
+			subpath = subpath.strip()
+			return pkg_path + subpath
+		else:
+			print("Cannot resolve", filepath)
+			return ""
+
 	def getTransitionLabel(self, node: xml.dom.minidom.Element) -> str:
-		label = TREE_LABEL.format(("ns: " + node.getAttribute("ns")  +" ") if node.hasAttribute("ns") else "",
-															  ( "if: " + node.getAttribute("if")  +" ") if node.hasAttribute("if") else "",      # and not "allow_trajectory_execution" in if_cond
-															  ("unless: " + node.getAttribute("unless") +"\n") if node.hasAttribute("unless") else "",
+		label = TREE_LABEL.format(("ns: " + node.getAttribute("ns")  +"; ") if node.hasAttribute("ns") else "",
+															  ( "if: " + node.getAttribute("if")  +"; ") if node.hasAttribute("if") else "",      # and not "allow_trajectory_execution" in if_cond
+															  ("unless: " + node.getAttribute("unless") +";\n") if node.hasAttribute("unless") else "",
 															  )
 		return label
 	
@@ -252,37 +289,26 @@ class XDox():
 
 		return [self.resolvePath(f) for f in included_files]
 	
-	def subVarArg(self, input_str: str) -> str:
-		"""$(arg v)/path -> v/path"""
-		match = re.search(r"\$\(\s*arg\s+([^)]+)\s*\)", input_str)
-		if match:
-			arg = match.group(1)
-			subpath = re.sub(r'\$\(arg \S+\)', '', input_str)
-			subpath = subpath.strip()
-			return arg + subpath
-		
-		return input_str
-
-	def resolvePath(self, filepath: str) -> str:
-		match = re.search(r"\$\(\s*find\s+([^)]+)\s*\)", filepath)
-		if match:
-			pkg = match.group(1)
-			pkg_path = self.rospack.get_path(pkg)
-			subpath = re.sub(r'\$\(find \S+\)', '', filepath)
-			subpath = subpath.strip()
-			return pkg_path + subpath
-		else:
-			print("Cannot resolve", filepath)
-			return ""
-	
 	def addNode(self, node_name: str, hlink: str, color: str="blue", shape: str="box") -> None:
 		label = HYPERLINK.format(self.title_tex.name2Ref(hlink), self.title_tex.escapeAll(node_name))
 		self.tree += f"\"{self.title_tex.escapeAll(node_name)}\" [label=\"{label}\", color=\"{color}\",shape=\"{shape}\"];\n"
 
 	def addEdge(self, parent: str, child: str, label: str) -> None:
-		edge = f"\"{self.title_tex.escapeAll(parent)}\" -> \"{self.title_tex.escapeAll(child)}\" [label=\"{self.title_tex.escapeAll(label)}\"];\n"
+		# add hyperlink
+		label = self.title_tex.escapeVarArg(label)
+		args = label.replace("'", " ").split(" ")
+		for arg in args:
+			if arg in self.args_documented:
+				label = label.replace(arg, HYPERLINK.format(self.title_tex.name2Ref(arg), f" {self.title_tex.escapeAll(arg)}"))
+			else:
+				label = label.replace(arg, f"{self.title_tex.escapeAll(arg)}") 
+
+		# avoid doubled entries
+		edge = f"\"{self.title_tex.escapeAll(parent)}\" -> \"{self.title_tex.escapeAll(child)}\" [label=\"{label}\"];\n"
 		if edge in self.edges_documented:
 			return
+		
+		# add edge
 		self.edges_documented.append(edge)
 		self.edges += edge
 
@@ -292,24 +318,38 @@ class XDox():
 		return f"\\hyperlink{{{updated_content}}}"
 	
 	def cleanTikzTree(self, tikz_tree: str) -> str:
+		"""Workaround d2t formattings that result
+		 	  in compilation errors with tex commands.
+		"""
+
+		# $\backslash$hyperlink -> \hyperlink
 		pattern = r"\$\\backslash\$hyperlink"
 		replacement = r"\\hyperlink"
 		tikz_tree = re.sub(pattern, replacement, tikz_tree)
 
+		# \{ -> {
 		pattern = r"\\\{"
 		replacement = r"{"
 		tikz_tree = re.sub(pattern, replacement, tikz_tree)
 
+		# \} -> }
 		pattern = r"\\\}"
 		replacement = r"}"
 		tikz_tree = re.sub(pattern, replacement, tikz_tree)
 
+		# rm $\backslash$
 		pattern = r"\$\\backslash\$"
 		replacement = r"" 
 		tikz_tree = re.sub(pattern, replacement, tikz_tree)
-
+		
+		# \hyperlink{a\_b\_c} -> \hyperlink{a_b_c}
 		pattern = r"\\hyperlink\{([^}]+)\}"
 		tikz_tree = re.sub(pattern, self.cleanHlink, tikz_tree)
+
+		#  " "hyperlink -> \hyperlink
+		pattern = r" hyperlink"
+		replacement = r"\\hyperlink"
+		tikz_tree = re.sub(pattern, replacement, tikz_tree)
 
 		return tikz_tree
 
@@ -351,20 +391,6 @@ class XDox():
 		t2pdf_main()
 
 		return "Tree saved to " + self.doc_dir + "/grapviz_tree.tex\n"
-	
-	def getFilename(self, filepath: str) -> str:
-		return os.path.basename(filepath).replace(self.extension, "").replace(".xml", "")
-
-	def isLaunchfile(self, filename: str) -> bool:
-		return '.launch' in filename
-
-	def formatFileLabel(self, name: str) -> str:
-		assert("/" not in name and "." not in name) # filename w/o extension 
-		return FILE_LABEL.format(self.doc_type, name)
-	
-	def formatArgLabel(self, name: str) -> str:
-		assert("$" not in name and "(" not in name and ")" not in name) # argname w/o braces
-		return ARG_LABEL.format(self.doc_type, name)
 
 	def addDoc(self, filepath: str, lib: xml.dom.minidom.Element) -> None:
 		if self.rm_pattern not in filepath: # ignore
@@ -423,31 +449,6 @@ class XDox():
 			self.printInfo(i.hasChildNodes())
 
 			exit(0)
-
-			# # remap launchfile member
-			# if node.nodeName == 'group':
-			# 	if node.hasAttribute("name"):
-			# 		name = node.getAttribute("name")
-			# 	if node.hasAttribute("ns"):
-			# 		ns = node.getAttribute("ns")
-			# 	if node.hasAttribute("if"):
-			# 		if_cond = node.getAttribute("if")
-			# 	if node.hasAttribute("unless"):
-			# 		unless_cond = node.getAttribute("unless")
-
-			# elif node.nodeName == 'include':
-			# 	if node.hasAttribute("name"):
-			# 		name = node.getAttribute("name")
-			# 	if node.hasAttribute("file"):
-			# 		file = node.getAttribute("file")
-			# 		file = xdx.resolvePath(file)
-			# 		process_file(file)
-			# 	if node.hasAttribute("ns"):
-			# 		ns = node.getAttribute("ns")
-			# 	if node.hasAttribute("if"):
-			# 		if_cond = node.getAttribute("if")
-			# 	if node.hasAttribute("unless"):
-			# 		unless_cond = node.getAttribute("unless")
 						 
 	def _procGroups(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
 		group_list = ""
