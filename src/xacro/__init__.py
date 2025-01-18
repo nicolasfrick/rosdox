@@ -934,7 +934,7 @@ def eval_all(node, macros, symbols):
 	
 	###### if present, it's current file's root node #####
 	root_filename = None
-	if node.hasAttribute("filename"):
+	if node.hasAttribute("filename") and xdx.launchfile:
 		root_filename = node.getAttribute("filename")
 		xdx.addDoc(root_filename, node) # replaces duplicates
 	#####################################
@@ -946,9 +946,10 @@ def eval_all(node, macros, symbols):
 		if node.nodeType == xml.dom.Node.ELEMENT_NODE:
 
 			################ doc included files ##################
-			for file in xdx.handleElement(node, root_filename):
-				# solve includes recursively
-				process_file(file)
+			if xdx.launchfile:
+				for file in xdx.handleElement(node, root_filename):
+					# solve includes recursively
+					process_file(file)
 			###################################################
 
 			# process xacro
@@ -1211,7 +1212,7 @@ def main():
 		return
 
 	# write output
-	# out.write(doc.toprettyxml(indent='  ', **encoding))
+	out.write(doc.toprettyxml(indent='  ', **encoding))
 	print()
 	# only close output file, but not stdout
 	if opts.output:
@@ -1219,6 +1220,7 @@ def main():
 
 	#######################
 	# create documentation
-	xdx.genDoc()
-	xdx.writeDoc()
+	if xdx.launchfile:
+		xdx.genDoc()
+		xdx.writeDoc()
 	#########################
