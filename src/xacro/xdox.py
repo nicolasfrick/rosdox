@@ -113,8 +113,8 @@ class XTex():
 	def citemVarEntry(self, name: str, value: str, text: str) -> str:
 		return DOXY_CITEMIZE_CLIST.format(f"\\textbf{{{self.escapeAll(name)}}}"+":" , self.escapeAll(value), self.escapeAll(text))
 	
-	def citemParEntry(self, name: str, value: str) -> str:
-		return DOXY_CITEMIZE_CLIST.format(f"\\textbf{{{self.escapeAll(name)}}}" , "", self.escapeAll(value))
+	def citemHlinkVarEntry(self, name: str, value: str, text: str) -> str:
+		return DOXY_CITEMIZE_CLIST.format(f"\\textbf{{{name}}}"+":" , self.escapeAll(value), self.escapeAll(text))
 	
 	def input(self, filepath: str) -> None:
 		self.tex += INPUT.format(filepath)
@@ -133,10 +133,19 @@ class XDox():
 	TEX = 'tex'
 	FILENAME = 'fn'
 	PKGNAME = 'pkg'
+	ARG = 'arg'
+	PARAM = 'param'
+	REMAP = 'remap'
+	GROUP = 'group'
+	INCLUDE = 'include'
+	NODE = 'node'
 
-	LAUNCHFILE_NODE = 'node'
-	LAUNCHFILE_GROUP = 'group'
-	LAUNCHFILE_INCLUDE = 'include'
+	LAUNCHFILE_ARG = ARG
+	LAUNCHFILE_PARAM = PARAM
+	LAUNCHFILE_INCLUDE = INCLUDE
+	LAUNCHFILE_GROUP = GROUP
+	LAUNCHFILE_NODE = NODE
+	LAUNCHFILE_REMAP = REMAP
 
 	def __init__(self) -> None:
 		pass
@@ -166,16 +175,15 @@ class XDox():
 		self.title_tex = XTex(self.name, self.doc_dir)
 		self.root_file = self.getFilename(input_filename)
 		self.current_file = self.root_file
-		self.docs = {self.root_file: {self.LIB: None, self.TEX: XTex(self.root_file, self.doc_dir), self.FILENAME: self.title_tex.removePath(input_filename, self.rm_file_part)}}
+		self.docs = {}
 		self.args_documented = []
 		self.edges_documented = []
 
 		# tree graph 
-		self.tree = "digraph G {\nrankdir=LR;\nfontname=\"Bitstream Vera Sans\";\nfontsize=25;\nnode [shape=box, fontname=\"Bitstream Vera Sans\", fontsize=3, color=blue, fontcolor=blue];\n"
+		self.tree = "digraph G {\nranksep=0.02;\nnodesep=0.5;\nrankdir=LR;\nfontname=\"Bitstream Vera Sans\";\nfontsize=25;\nnode [shape=box, fontname=\"Bitstream Vera Sans\", fontsize=3, color=blue, fontcolor=blue];\n"
 		self.edges = ""
 
 		self.rospack = RosPack()
-
 		self.printInfo("Creating latex documentation for", "launchfiles" if self.launchfile else "xacro", "in", self.doc_dir if self.doc_dir is not None else 'stdout')
 
 		# reset path for xacro output
@@ -278,12 +286,12 @@ class XDox():
 				self.handleLaunchGroup(node, root_filename, files)
 				included_files.extend(files)
 					
-        # handle includes directly
+		# handle includes directly
 		elif node.nodeName == self.LAUNCHFILE_INCLUDE:
 				file = self.handleLaunchFile(node, root_filename)
 				included_files.append(file)
 
-        # handle nodes directly
+		# handle nodes directly
 		elif node.nodeName == self.LAUNCHFILE_NODE:
 			self.handleLaunchNode(node, root_filename)
 
@@ -295,6 +303,8 @@ class XDox():
 
 	def addEdge(self, parent: str, child: str, label: str) -> None:
 		# add hyperlink
+		if not "allow_trajectory_execution" in label:
+			label = label.replace(";", ";\n")
 		label = self.title_tex.escapeVarArg(label)
 		args = label.replace("'", " ").split(" ")
 		for arg in args:
@@ -393,128 +403,242 @@ class XDox():
 		return "Tree saved to " + self.doc_dir + "/grapviz_tree.tex\n"
 
 	def addDoc(self, filepath: str, lib: xml.dom.minidom.Element) -> None:
-		if self.rm_pattern not in filepath: # ignore
-			name = self.getFilename(filepath)
+		 # ignore file
+		if self.rm_pattern in filepath:
+			return
+		
+		# add/ update doc
+		name = self.getFilename(filepath)
+		if name in self.docs.keys():
+			self.printInfo("Ignoring duplicatet file", name)
+			return
+		else:
+			self.printInfo(f"Adding documentation for {self.doc_type}{'' if self.docs else ' root'} file: ", name)
+			self.docs.update( {name: {self.TEX: XTex(name, self.doc_dir), 
+															  self.FILENAME: self.title_tex.removePath(filepath, self.rm_file_part),
+															  self.ARG: {},
+															  self.PARAM: {},
+															  self.NODE: {},
+															  self.INCLUDE: {},
+															  self.REMAP: [],
+															  }
+											  } )
 
-			if name in self.docs.keys():
-				infix = " root" if self.root_file in filepath else ""
-				self.printInfo(f"Replacing documentation for {self.doc_type}{infix} file: ", name)
-				self.docs[name][self.LIB] = lib
-			else:
-				self.printInfo(f"Adding documentation for {self.doc_type} included file: ", name)
-				self.docs.update( {name: {self.LIB: lib, self.TEX: XTex(name, self.doc_dir), self.FILENAME: self.title_tex.removePath(filepath, self.rm_file_part)}} )
+		# process elements
+		self.procDoc(name, lib)
+
+	def procDoc(self, file_name: str, parent: xml.dom.minidom.Element, group_attrs: dict=None) -> None:
+		for node in parent.childNodes:
+			if node.nodeType == parent.ELEMENT_NODE:
+
+				if node.nodeName == self.LAUNCHFILE_NODE:
+					self.procNode(file_name, node, group_attrs)
+
+				elif node.nodeName == self.LAUNCHFILE_INCLUDE:
+					self.procInclude(file_name, node, group_attrs)
+
+				elif node.nodeName == self.LAUNCHFILE_GROUP:
+					self.procGroup(file_name, node, group_attrs)
+
+				elif node.nodeName == self.LAUNCHFILE_ARG:
+					self.procArg(file_name, node, group_attrs)
+
+				elif node.nodeName == self.LAUNCHFILE_PARAM:
+					self.procParam(file_name, node, group_attrs)
+
+				elif node.nodeName == self.LAUNCHFILE_REMAP:
+					self.procRemap(file_name, node, group_attrs)
+
+	def procNode(self, file_name: str, node: xml.dom.minidom.Element, group_attrs: dict=None) -> None:
+		node_name =  node.getAttribute("name")
+		assert(node_name)
+
+		self.docs[file_name][self.NODE].update( {
+			node_name : {"ns": node.getAttribute("ns") if node.hasAttribute("ns") else None,
+										"pkg": node.getAttribute("pkg") if node.hasAttribute("pkg") else None,
+										"type": node.getAttribute("type") if node.hasAttribute("type") else None,
+										"if": node.getAttribute("if") if node.hasAttribute("if") else None,
+										"unless": node.getAttribute("unless") if node.hasAttribute("unless") else None,
+										"args": node.getAttribute("args") if node.hasAttribute("args") else None,
+										"group_attrs": group_attrs,
+									  }
+		  })
+
+	def procInclude(self, file_name: str, node: xml.dom.minidom.Element, group_attrs: dict=None) -> None:
+		incl_filename =  node.getAttribute("file")
+		assert(incl_filename)
+		
+		self.docs[file_name][self.INCLUDE].update( {
+			incl_filename : { "ns": node.getAttribute("ns") if node.hasAttribute("ns") else None,
+											"if": node.getAttribute("if") if node.hasAttribute("if") else None,
+											"unless": node.getAttribute("unless") if node.hasAttribute("unless") else None,
+											"group_attrs": group_attrs,
+										  }
+		  })
+		
+	def procArg(self, file_name: str, node: xml.dom.minidom.Element, group_attrs: dict=None) -> None:
+		arg_name =  node.getAttribute("name")
+		assert(arg_name)
+
+		doc = node.getAttribute("doc") if node.hasAttribute("doc") else None
+		if doc is not None:
+			self.args_documented.append(arg_name)
+		
+		self.docs[file_name][self.ARG].update( {
+			arg_name:  {"if": node.getAttribute("if") if node.hasAttribute("if") else None,
+									"unless": node.getAttribute("unless") if node.hasAttribute("unless") else None,
+									"value": node.getAttribute("value") if node.hasAttribute("value") else None,
+									"default": node.getAttribute("default") if node.hasAttribute("default") else None,
+									"doc": doc,
+									"group_attrs": group_attrs,
+								  }
+		  })
+		
+	def procParam(self, file_name: str, node: xml.dom.minidom.Element, group_attrs: dict=None) -> None:
+		param_name =  node.getAttribute("name")
+		assert(param_name)
+
+		self.docs[file_name][self.PARAM].update( {
+			param_name:  {"if": node.getAttribute("if") if node.hasAttribute("if") else None,
+											"unless": node.getAttribute("unless") if node.hasAttribute("unless") else None,
+											"value": node.getAttribute("value") if node.hasAttribute("value") else None,
+											"command": node.getAttribute("command") if node.hasAttribute("command") else None,
+											"group_attrs": group_attrs,
+										}
+		  })
+		
+	def procRemap(self, file_name: str, node: xml.dom.minidom.Element, group_attrs: dict=None) -> None:
+		# remaps 
+		self.docs[file_name][self.REMAP].append( {"if": node.getAttribute("if") if node.hasAttribute("if") else None,
+																							"unless": node.getAttribute("unless") if node.hasAttribute("unless") else None,
+																							"from": node.getAttribute("from") if node.hasAttribute("from") else None,
+																							"to": node.getAttribute("to") if node.hasAttribute("to") else None, 
+																							"group_attrs": group_attrs,} )
+						 
+	def procGroup(self, file_name: str, node: xml.dom.minidom.Element, group_attrs: dict=None) -> None:
+		ns = node.getAttribute("ns") if node.hasAttribute("ns") else None
+		if_cond = node.getAttribute("if") if node.hasAttribute("if") else None
+		unless_cond = node.getAttribute("unless") if node.hasAttribute("unless") else None
+
+		if group_attrs is None: # add attributes
+			group_attrs = {"ns": ns, "if": if_cond, "unless": unless_cond,}
+		else: # extend attributes
+			group_attrs["ns"] = ns if group_attrs["ns"] is None else group_attrs["ns"] if ns is None else group_attrs["ns"] + " " + ns 
+			group_attrs["if"] = if_cond if group_attrs["if"] is None else group_attrs["if"] if if_cond is None else group_attrs["if"] + " " + if_cond
+			group_attrs["unless"] = unless_cond if group_attrs["unless"] is None else group_attrs["unless"] if unless_cond is None else group_attrs["unless"] + " " + unless_cond
+
+		# recursion
+		self.procDoc(file_name, node, group_attrs)
+
+	def procText(self, file_name: str, node: xml.dom.minidom.Element) -> None:
+		pass
+
+	def procComment(self, file_name: str, node: xml.dom.minidom.Element) -> None:
+		pass
 
 	def genDoc(self) -> None:
 		# gen file list
 		self.title_tex.subsection("Launchfiles Documentation", SEC_LABEL.format(self.doc_type))
-		self.fileList( self.title_tex, {name: dct[self.FILENAME] for name, dct in self.docs.items()} )
+		self.docFiles( self.title_tex, {name: dct[self.FILENAME] for name, dct in self.docs.items()} )
 		self.title_tex.newpage()
 
 		# gen content per file
 		for name, dct in self.docs.items():
 			self.printInfo("Generating latex documentation for", name)
-			self._procDoc(name, dct[self.LIB], dct[self.TEX])
 			self.title_tex.input(name)
+			tex: XTex = dct[self.TEX]
+			tex.subsubsection(name, self.formatFileLabel(name), "Content Documentation")
 
-	def fileList(self, tex: XTex, files: dict) -> None:
-		tex.newpage()
+			self.docArgs(dct[self.ARG], tex)
+			tex.newpage()
+			self.docParams(dct[self.PARAM], tex)
+			tex.newpage()
+			self.docIncludes(dct[self.INCLUDE], tex)
+			tex.newpage()
+			self.docNodes(dct[self.NODE], tex)
+			tex.newpage()
+			self.docRemaps(dct[self.REMAP], tex)
+			tex.newpage()
+
+	def docFiles(self, tex: XTex, files: dict) -> None:
 		tex.subsubsection("File List", SUBSEC_LABEL.format(self.doc_type, "filelist"), "Here is a list of all files:")
 		lststr = "".join( [tex.clistHyperEntry(self.formatFileLabel(name), file) for name, file in files.items()] )
 		tex.clist(lststr)
 
-	def _procDoc(self, name: str, lib: xml.dom.minidom.Element, tex: XTex) -> None:        
-		tex.subsubsection(name, self.formatFileLabel(name), "Content Documentation")
+	def fmtConditionals(self, group_attrs: Union[None, dict], if_cond: Union[None, str], unless_cond: Union[None, str]) -> str:
+		conditionals = "" if if_cond is None else "if condition: " + if_cond + "\n" \
+									+ "" if unless_cond is None else "unless condition: " + "\n" 
+		if group_attrs is None:
+			return conditionals
+		else:
+			return "" if group_attrs["ns"] is None else "group namespaces: " + group_attrs["ns"] + "\n" \
+						+ "" if group_attrs["if"] is None else "group if conditions: " + group_attrs["if"] + "\n" \
+						+ "" if group_attrs["unless"] is None else "group unless conditions: " + group_attrs["unless"] + "\n" \
+						+ conditionals
 
-		self._procArgs(lib, tex)
-		tex.newpage()
-		# self._procParams(lib, tex)
-		# tex.newpage()
-		# self._procGroups(lib, tex)
-		# tex.newpage()
-		# self._procText(lib, tex)
-		# tex.newpage()
-		# self._procComment(lib, tex)
-		# tex.newpage()
-		# self._procIncludes(lib, tex)
-		# tex.newpage()
-
-	def _procIncludes(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
-		include_list = ""
-		includes = lib.getElementsByTagName("include")
-		if len(includes) == 0:
-			return 
-		
-		for i in includes:
-			self.printInfo(i.getAttribute("if"))
-			self.printInfo(i.hasChildNodes())
-
-			exit(0)
-						 
-	def _procGroups(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
-		group_list = ""
-		groups = lib.getElementsByTagName("group")
-		if len(groups) == 0:
-			return 
-		
-		for g in groups:
-			self.printInfo(g.toprettyxml())
-
-	def _procText(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
-		text_list = ""
-		texts = lib.getElementsByTagName("#text")
-		if len(texts) == 0:
-			return 
-		
-		for t in texts:
-			self.printInfo(t.toprettyxml())
-
-	def _procComment(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
-		com_list = ""
-		comments = lib.getElementsByTagName("#comment")
-		if len(comments) == 0:
-			return 
-		
-		for c in comments:
-			self.printInfo(c.toprettyxml())
-
-	def _procArgs(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
+	def docArgs(self, args: dict, tex: XTex) -> None:
 		args_list = ""
-		args = lib.getElementsByTagName("arg")
-		if len(args) == 0:
-			return 
-		
-		for a in args:
-			n = a.getAttribute("name") if a.hasAttribute("name") else "?"
-			v = a.getAttribute("value") if a.hasAttribute("value") else a.getAttribute("default") if a.hasAttribute("default") else "n/a"
-			d = a.getAttribute("doc") if a.hasAttribute("doc") else "n/a"
-			args_list += tex.citemVarEntry(n, v ,d)
+		for name, dct in args.items():
+			hlink = HYPERLINK.format(self.title_tex.name2Ref(name), f"{self.title_tex.escapeAll(name)}")
+			conditionals = self.fmtConditionals(dct["group_attrs"], dct["if"], dct["unless"])
+			value = dct["value"] if dct["value"] is not None else "default: " + dct["default"] if dct["default"] is not None else "n/a"
+			doc = "" if dct["doc"] is None else dct["doc"]
+			args_list += tex.citemHlinkVarEntry(hlink, value, conditionals + doc)
 
 		if "\item" in args_list:
-			tex.citem("Args:~~~~~~\small{name}~~~~~~~~~~\small{default}", args_list)
+			# surround with a list if entries are present
+			tex.citem(f"Args:\\hspace{{2cm}}\small{{name}}\\hspace{{2cm}}\\small{{value}}\\hspace{{2cm}}\\small{{documentation}}", args_list)
 
-	def _procParams(self, lib: xml.dom.minidom.Element, tex: XTex) -> None:
+	def docParams(self, params: dict, tex: XTex) -> None:
 		params_list = ""
-		params = lib.getElementsByTagName("param")
-		val = 'command'
-		if len(params) == 0:
-			return 
-		
-		for p in params:
-			n = p.getAttribute("name") if p.hasAttribute("name") else "?"
-			if p.hasAttribute("command"):
-				c = p.getAttribute("command") 
-				c = c.replace(") ", ")\\\\\n \small\item\em ")
-			elif p.hasAttribute("value"):
-				c = p.getAttribute("value")
-				val = 'value'
-
-			params_list += tex.citemParEntry(n, c)
-			# add line breaks
-			tex.newline()
+		for name, dct in params.items():
+			conditionals = self.fmtConditionals(dct["group_attrs"], dct["if"], dct["unless"])
+			value = "n/a" if dct["value"] is None else dct["value"]
+			command = conditionals if dct["command"] is None else conditionals + "command:\n" + dct["command"]
+			params_list += tex.citemVarEntry(name, value, command)
 
 		if "\item" in params_list:
-			tex.citem(f"Params:\\hspace{{2cm}}\small{{name}}\\hspace{{2cm}}\\small{{{val}}}" + ("\\hspace{{2cm}}\\small{{args}}" if val == 'command' else ""), params_list)
-			tex.newpage()
+			# surround with a list if entries are present
+			tex.citem(f"Params:\\hspace{{2cm}}\small{{name}}\\hspace{{2cm}}\\small{{value}}\\hspace{{2cm}}\\small{{documentation}}", params_list)
+
+	def docIncludes(self, includes: dict, tex: XTex) -> None:
+		includes_list = ""
+		for name, dct in includes.items():
+			conditionals = self.fmtConditionals(dct["group_attrs"], dct["if"], dct["unless"])
+			ns = "" if dct["ns"] is None else dct["ns"]
+			print(name)
+			exit(0)
+			# includes_list += tex.citemVarEntry(name.replace(""), ns, conditionals)
+
+		if "\item" in includes_list:
+			# surround with a list if entries are present
+			tex.citem(f"Includes:\\hspace{{2cm}}\small{{file}}\\hspace{{2cm}}\\small{{namespace}}\\hspace{{2cm}}\\small{{conditionals}}", includes_list)
+
+	def docNodes(self, nodes: dict, tex: XTex) -> None:
+		nodes_list = ""
+		for name, dct in nodes.items():
+			conditionals = self.fmtConditionals(dct["group_attrs"], dct["if"], dct["unless"])
+			conditionals += "" if dct["ns"] is None else "namespace: " + dct["ns"] + "\n"
+			conditionals += "" if dct["pkg"] is None else "package: " + dct["pkg"] + "\n"
+			conditionals += "" if dct["args"] is None else "args: " + dct["args"]
+			node_type = "n/a" if dct["type"] is None else dct["type"]
+			nodes_list += tex.citemHlinkVarEntry(name, node_type, conditionals)
+
+		if "\item" in nodes_list:
+			# surround with a list if entries are present
+			tex.citem(f"Nodes:\\hspace{{2cm}}\small{{name}}\\hspace{{2cm}}\\small{{type}}\\hspace{{2cm}}\\small{{documentation}}", nodes_list)
+
+	def docRemaps(self, remaps: list, tex: XTex) -> None:
+		remaps_list = ""
+		for dct in remaps:
+			conditionals = self.fmtConditionals(dct["group_attrs"], dct["if"], dct["unless"])
+			remap_from = "n/a" if dct["from"] is None else dct["from"]
+			remap_to = "n/a" if dct["to"] is None else dct["to"]
+			remaps_list += tex.citemVarEntry(remap_from, remap_to, conditionals)
+
+		if "\item" in remaps_list:
+			# surround with a list if entries are present
+			tex.citem(f"Remaps:\\hspace{{2cm}}\small{{from}}\\hspace{{2cm}}\\small{{to}}\\hspace{{2cm}}\\small{{conditionals}}", remaps_list)
 
 	def writeDoc(self) -> None:
 		res_str = self.title_tex.save()
