@@ -67,6 +67,9 @@ class XTex():
 	def escapeVarArg(self, input_str: str) -> str:
 		return input_str.replace("(", "'").replace(")", "'").replace("$","")
 	
+	def rmFindPattern(self, input_str: str) -> str:
+		return input_str.replace("$(find ", "").replace(")", "")
+	
 	def rmWhiteSpace(self, input_str: str) -> str:
 		out = re.sub(r' {2,}', ' ', input_str)
 		return out
@@ -111,10 +114,10 @@ class XTex():
 		return DOXY_CLIST_ENTRY.format(self.escapeAll(name), self.escapeAll(value), self.escapeAll(text))
 	
 	def citemVarEntry(self, name: str, value: str, text: str) -> str:
-		return DOXY_CITEMIZE_CLIST.format(f"\\textbf{{{self.escapeAll(name)}}}"+":" , self.escapeAll(value), self.escapeAll(text))
+		return DOXY_CITEMIZE_CLIST.format(f"\\textbf{{{self.escapeAll(name)}}}" , self.escapeAll(value), self.escapeAll(text))
 	
 	def citemHlinkVarEntry(self, name: str, value: str, text: str) -> str:
-		return DOXY_CITEMIZE_CLIST.format(f"\\textbf{{{name}}}"+":" , self.escapeAll(value), self.escapeAll(text))
+		return DOXY_CITEMIZE_CLIST.format(f"\\textbf{{{name}}}" , self.escapeAll(value), self.escapeAll(text))
 	
 	def input(self, filepath: str) -> None:
 		self.tex += INPUT.format(filepath)
@@ -165,7 +168,7 @@ class XDox():
 		if self.doc_dir is not None and not os.path.exists(self.doc_dir):
 			os.makedirs(self.doc_dir, exist_ok=True)
 
-		self.rm_pattern = rm_pattern if rm_pattern is not None else ''
+		self.rm_pattern = rm_pattern.split(",") if rm_pattern is not None else ''
 		self.launchfile = self.isLaunchfile(input_filename)
 		self.doc_type = 'launch' if self.launchfile else 'xacro'
 		self.extension = "." + self.doc_type
@@ -325,7 +328,7 @@ class XDox():
 	def cleanHlink(self, match: re.Match) -> str:
 		content = match.group(1) 
 		updated_content = content.replace("\\", "")  
-		return f"\\hyperlink{{{updated_content}}}"
+		return f"hyperlink{{{updated_content}}}"
 	
 	def cleanTikzTree(self, tikz_tree: str) -> str:
 		"""Workaround d2t formattings that result
@@ -353,7 +356,7 @@ class XDox():
 		tikz_tree = re.sub(pattern, replacement, tikz_tree)
 		
 		# \hyperlink{a\_b\_c} -> \hyperlink{a_b_c}
-		pattern = r"\\hyperlink\{([^}]+)\}"
+		pattern = r"hyperlink\{([^}]+)\}"
 		tikz_tree = re.sub(pattern, self.cleanHlink, tikz_tree)
 
 		#  " "hyperlink -> \hyperlink
@@ -404,8 +407,9 @@ class XDox():
 
 	def addDoc(self, filepath: str, lib: xml.dom.minidom.Element) -> None:
 		 # ignore file
-		if self.rm_pattern in filepath:
-			return
+		for pattern in self.rm_pattern:
+			if pattern in filepath:
+				return
 		
 		# add/ update doc
 		name = self.getFilename(filepath)
@@ -579,7 +583,7 @@ class XDox():
 	def docArgs(self, args: dict, tex: XTex) -> None:
 		args_list = ""
 		for name, dct in args.items():
-			hlink = HYPERLINK.format(self.title_tex.name2Ref(name), f"{self.title_tex.escapeAll(name)}")
+			hlink = HYPERTARGET.format(self.title_tex.name2Ref(name), f"{self.title_tex.escapeAll(name)}")
 			conditionals = self.fmtConditionals(dct["group_attrs"], dct["if"], dct["unless"])
 			value = dct["value"] if dct["value"] is not None else "default: " + dct["default"] if dct["default"] is not None else "n/a"
 			doc = "" if dct["doc"] is None else dct["doc"]
@@ -595,7 +599,7 @@ class XDox():
 			conditionals = self.fmtConditionals(dct["group_attrs"], dct["if"], dct["unless"])
 			value = "n/a" if dct["value"] is None else dct["value"]
 			command = conditionals if dct["command"] is None else conditionals + "command:\n" + dct["command"]
-			params_list += tex.citemVarEntry(name, value, command)
+			params_list += tex.citemVarEntry(name, value.replace("'",""), command.replace("'",""))
 
 		if "\item" in params_list:
 			# surround with a list if entries are present
@@ -606,9 +610,7 @@ class XDox():
 		for name, dct in includes.items():
 			conditionals = self.fmtConditionals(dct["group_attrs"], dct["if"], dct["unless"])
 			ns = "" if dct["ns"] is None else dct["ns"]
-			print(name)
-			exit(0)
-			# includes_list += tex.citemVarEntry(name.replace(""), ns, conditionals)
+			includes_list += tex.citemVarEntry(self.title_tex.rmFindPattern(name), ns.replace("'","").replace("`","").replace("eval",""), conditionals.replace("'","").replace("`","").replace("eval",""))
 
 		if "\item" in includes_list:
 			# surround with a list if entries are present
@@ -622,7 +624,7 @@ class XDox():
 			conditionals += "" if dct["pkg"] is None else "package: " + dct["pkg"] + "\n"
 			conditionals += "" if dct["args"] is None else "args: " + dct["args"]
 			node_type = "n/a" if dct["type"] is None else dct["type"]
-			nodes_list += tex.citemHlinkVarEntry(name, node_type, conditionals)
+			nodes_list += tex.citemHlinkVarEntry(name, node_type, conditionals.replace("'",""))
 
 		if "\item" in nodes_list:
 			# surround with a list if entries are present
@@ -634,7 +636,7 @@ class XDox():
 			conditionals = self.fmtConditionals(dct["group_attrs"], dct["if"], dct["unless"])
 			remap_from = "n/a" if dct["from"] is None else dct["from"]
 			remap_to = "n/a" if dct["to"] is None else dct["to"]
-			remaps_list += tex.citemVarEntry(remap_from, remap_to, conditionals)
+			remaps_list += tex.citemVarEntry(remap_from.replace("'",""), remap_to.replace("'",""), conditionals.replace("'",""))
 
 		if "\item" in remaps_list:
 			# surround with a list if entries are present
