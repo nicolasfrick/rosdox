@@ -33,9 +33,9 @@ class XTex():
 		print("MBOX_HYPERLINK", MBOX_HYPERLINK.format("testref", "teststr"), "\n")
 		print("DOXY_SEC", DOXY_SEC.format("teststr", "testref"), "\n")
 		print("DOXY_SUBSEC", DOXY_SUBSEC.format("teststr", "testref", "testtext"), "\n")
-		print("DOXY_SUBSUBSEC", DOXY_SUBSUBSEC.format("teststr", "testref", "testtext"), "\n")
+		print("DOXY_SUBSUBSEC", DOXY_SUBSUBSEC.format("teststr", "testref", "testref", "", "testtext"), "\n")
 		print("DOXY_CLIST", DOXY_CLIST.format(DOXY_CLIST_ENTRY.format("teststr", "testref", "testtext")), "\n")
-		print("DOXY_CLIST_HYPER_ENTRY", DOXY_CLIST_HYPER_ENTRY.format("hyperlink", "hypertext", "page", "testext"), "\n")
+		print("DOXY_CLIST_HYPER_ENTRY", DOXY_CLIST_HYPERTARGET_ENTRY.format("hyperlink", "hypertext", "page", "testext"), "\n")
 		print("DOXY_CITEMIZE", DOXY_CITEMIZE.format("testitem"), "\n")
 		print("DOXY_CITEMIZE_CLIST", DOXY_CITEMIZE_CLIST.format("testitem", "testentry"), "\n")
 		citemize_clists_str = ""
@@ -65,7 +65,12 @@ class XTex():
 		return out
 	
 	def escapeVarArg(self, input_str: str) -> str:
-		return input_str.replace("(", "'").replace(")", "'").replace("$","")
+		fmt = input_str.replace("(", "'").replace(")", "'")
+		if "\$" in fmt:
+			fmt = fmt.replace("\$","")
+		elif "$" in fmt:
+			fmt = fmt.replace("$","")
+		return fmt
 	
 	def rmFindPattern(self, input_str: str) -> str:
 		return input_str.replace("$(find ", "").replace(")", "")
@@ -99,7 +104,7 @@ class XTex():
 		self.tex += DOXY_SUBSEC.format(self.escapeAll(name), label, self.escapeAll(text))
 
 	def subsubsection(self, name: str, label: str, text: str) -> None:
-		self.tex += DOXY_SUBSUBSEC.format(self.escapeAll(name), label, self.escapeAll(text))
+		self.tex += DOXY_SUBSUBSEC.format(self.escapeAll(name), label, label, "", self.escapeAll(text))
 
 	def clist(self, text: str) -> str:
 		self.tex += DOXY_CLIST.format(text)
@@ -107,8 +112,11 @@ class XTex():
 	def citem(self, title: str, text: str) -> str:
 		self.tex += DOXY_CITEMIZE.format(title, text)
 
-	def clistHyperEntry(self, link_target: str, hlink_text: str, text: str="") -> str:
-		return DOXY_CLIST_HYPER_ENTRY.format(self.name2Ref(link_target), self.escapeAll(hlink_text), link_target, self.escapeAll(text))
+	def clistHyperLinkEntry(self, link_target: str, hlink_text: str, text: str="") -> str:
+		return DOXY_CLIST_HYPERLINK_ENTRY.format(link_target, self.escapeAll(hlink_text), link_target, self.escapeAll(text)) + "\n"
+	
+	def clistHyperTargetEntry(self, link_target: str, hlink_text: str, text: str="") -> str:
+		return DOXY_CLIST_HYPERLINK_ENTRY.format(link_target, self.escapeAll(hlink_text), link_target, self.escapeAll(text)) + "\n"
 	
 	def clistEntry(self, name: str, value: str, text: str) -> str:
 		return DOXY_CLIST_ENTRY.format(self.escapeAll(name), self.escapeAll(value), self.escapeAll(text))
@@ -301,7 +309,7 @@ class XDox():
 		return [self.resolvePath(f) for f in included_files]
 	
 	def addNode(self, node_name: str, hlink: str, color: str="blue", shape: str="box") -> None:
-		label = HYPERLINK.format(self.title_tex.name2Ref(hlink), self.title_tex.escapeAll(node_name))
+		label = HYPERLINK.format(FILE_LABEL.format(self.doc_type, hlink), self.title_tex.escapeAll(node_name))
 		self.tree += f"\"{self.title_tex.escapeAll(node_name)}\" [label=\"{label}\", color=\"{color}\",shape=\"{shape}\"];\n"
 
 	def addEdge(self, parent: str, child: str, label: str) -> None:
@@ -312,7 +320,7 @@ class XDox():
 		args = label.replace("'", " ").split(" ")
 		for arg in args:
 			if arg in self.args_documented:
-				label = label.replace(arg, HYPERLINK.format(self.title_tex.name2Ref(arg), f" {self.title_tex.escapeAll(arg)}"))
+				label = label.replace(arg, HYPERLINK.format(self.formatArgLabel(arg), f" {self.title_tex.escapeAll(arg)}"))
 			else:
 				label = label.replace(arg, f"{self.title_tex.escapeAll(arg)}") 
 
@@ -350,6 +358,11 @@ class XDox():
 		replacement = r"}"
 		tikz_tree = re.sub(pattern, replacement, tikz_tree)
 
+		# \' -> '
+		pattern = r"\\'"
+		replacement = r"'"
+		tikz_tree = re.sub(pattern, replacement, tikz_tree)
+
 		# rm $\backslash$
 		pattern = r"\$\\backslash\$"
 		replacement = r"" 
@@ -362,6 +375,11 @@ class XDox():
 		#  " "hyperlink -> \hyperlink
 		pattern = r" hyperlink"
 		replacement = r"\\hyperlink"
+		tikz_tree = re.sub(pattern, replacement, tikz_tree)
+
+		#  'hyperlink -> \hyperlink
+		pattern = r"'hyperlink"
+		replacement = r" \\hyperlink"
 		tikz_tree = re.sub(pattern, replacement, tikz_tree)
 
 		return tikz_tree
@@ -550,23 +568,20 @@ class XDox():
 		for name, dct in self.docs.items():
 			self.printInfo("Generating latex documentation for", name)
 			self.title_tex.input(name)
+			self.title_tex.newpage()
 			tex: XTex = dct[self.TEX]
 			tex.subsubsection(name, self.formatFileLabel(name), "Content Documentation")
 
+
 			self.docArgs(dct[self.ARG], tex)
-			tex.newpage()
 			self.docParams(dct[self.PARAM], tex)
-			tex.newpage()
 			self.docIncludes(dct[self.INCLUDE], tex)
-			tex.newpage()
 			self.docNodes(dct[self.NODE], tex)
-			tex.newpage()
 			self.docRemaps(dct[self.REMAP], tex)
-			tex.newpage()
 
 	def docFiles(self, tex: XTex, files: dict) -> None:
 		tex.subsubsection("File List", SUBSEC_LABEL.format(self.doc_type, "filelist"), "Here is a list of all files:")
-		lststr = "".join( [tex.clistHyperEntry(self.formatFileLabel(name), file) for name, file in files.items()] )
+		lststr = "".join( [tex.clistHyperLinkEntry(self.formatFileLabel(name), file) for name, file in files.items()] )
 		tex.clist(lststr)
 
 	def fmtConditionals(self, group_attrs: Union[None, dict], if_cond: Union[None, str], unless_cond: Union[None, str]) -> str:
@@ -583,7 +598,7 @@ class XDox():
 	def docArgs(self, args: dict, tex: XTex) -> None:
 		args_list = ""
 		for name, dct in args.items():
-			hlink = HYPERTARGET.format(self.title_tex.name2Ref(name), f"{self.title_tex.escapeAll(name)}")
+			hlink = HYPERTARGET.format(self.formatArgLabel(name), f"{self.title_tex.escapeAll(name)}")
 			conditionals = self.fmtConditionals(dct["group_attrs"], dct["if"], dct["unless"])
 			value = dct["value"] if dct["value"] is not None else "default: " + dct["default"] if dct["default"] is not None else "n/a"
 			doc = "" if dct["doc"] is None else dct["doc"]
@@ -599,7 +614,7 @@ class XDox():
 			conditionals = self.fmtConditionals(dct["group_attrs"], dct["if"], dct["unless"])
 			value = "n/a" if dct["value"] is None else dct["value"]
 			command = conditionals if dct["command"] is None else conditionals + "command:\n" + dct["command"]
-			params_list += tex.citemVarEntry(name, value.replace("'",""), command.replace("'",""))
+			params_list += tex.citemVarEntry(name, value, command)
 
 		if "\item" in params_list:
 			# surround with a list if entries are present
@@ -610,7 +625,7 @@ class XDox():
 		for name, dct in includes.items():
 			conditionals = self.fmtConditionals(dct["group_attrs"], dct["if"], dct["unless"])
 			ns = "" if dct["ns"] is None else dct["ns"]
-			includes_list += tex.citemVarEntry(self.title_tex.rmFindPattern(name), ns.replace("'","").replace("`","").replace("eval",""), conditionals.replace("'","").replace("`","").replace("eval",""))
+			includes_list += tex.citemVarEntry(self.title_tex.rmFindPattern(name), ns, conditionals)
 
 		if "\item" in includes_list:
 			# surround with a list if entries are present
@@ -624,7 +639,7 @@ class XDox():
 			conditionals += "" if dct["pkg"] is None else "package: " + dct["pkg"] + "\n"
 			conditionals += "" if dct["args"] is None else "args: " + dct["args"]
 			node_type = "n/a" if dct["type"] is None else dct["type"]
-			nodes_list += tex.citemHlinkVarEntry(name, node_type, conditionals.replace("'",""))
+			nodes_list += tex.citemVarEntry(name, node_type, conditionals)
 
 		if "\item" in nodes_list:
 			# surround with a list if entries are present
@@ -636,7 +651,7 @@ class XDox():
 			conditionals = self.fmtConditionals(dct["group_attrs"], dct["if"], dct["unless"])
 			remap_from = "n/a" if dct["from"] is None else dct["from"]
 			remap_to = "n/a" if dct["to"] is None else dct["to"]
-			remaps_list += tex.citemVarEntry(remap_from.replace("'",""), remap_to.replace("'",""), conditionals.replace("'",""))
+			remaps_list += tex.citemVarEntry(remap_from, remap_to, conditionals)
 
 		if "\item" in remaps_list:
 			# surround with a list if entries are present
